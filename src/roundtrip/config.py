@@ -213,6 +213,14 @@ class Settings(BaseSettings):
     # The comparisons evaluate the first year after treatment, so the prior-year design
     # never compares a treated day with another treated day.
     post_window_days: int = 364
+    # Out-of-sample test of the synthetic control (owner review of the 2026-08 release):
+    # train on Jan to 13 Nov 2023 only, forecast the untreated year that follows.
+    oos_train_start: dt.date = dt.date(2023, 1, 1)
+    oos_train_end: dt.date = dt.date(2023, 11, 13)
+    oos_holdout_end: dt.date = dt.date(2024, 11, 13)
+    # A model "passes" if its mean gap over the hold-out year, and over its last quarter,
+    # is within this many percent (about the size of the 2023 test-window gaps).
+    oos_drift_tolerance_pct: float = 3.0
     bootstrap_seed: int = 20250105
 
     # --- compute ------------------------------------------------------------------------

@@ -68,6 +68,64 @@ def synth_plot(fit: SynthFit, test_fit: SynthFit | None, settings: Settings, pat
     plt.close(fig)
 
 
+OOS_COLORS = {"simplex": "#d1495b", "simplex_intercept": "#2e86ab", "ridge": "#6a994e"}
+
+
+def oos_plot(fits: dict[str, Any], settings: Settings, path: Path) -> None:
+    """Top: weekly CBD actual and each model's forecast, trained on Jan to Nov 2023.
+    Bottom: monthly forecast gap, % of forecast, from the end of training."""
+    any_fit = next(iter(fits.values()))
+    label = OUTCOME_LABELS.get(any_fit.outcome, any_fit.outcome)
+    fig, (ax, bx) = plt.subplots(2, 1, figsize=(10, 6.4), sharex=True)
+    wa = any_fit.actual.resample("W").mean()
+    ax.plot(wa.index, wa, color=COLORS["actual"], lw=1.5, label="CBD actual")
+    for name, f in fits.items():
+        wp = f.predicted.resample("W").mean()
+        ax.plot(
+            wp.index, wp, color=OOS_COLORS.get(name, "grey"), lw=1.1, label=name.replace("_", " ")
+        )
+        mg = f.monthly_gap_pct(settings.oos_train_end)
+        bx.plot(
+            mg.index,
+            mg,
+            color=OOS_COLORS.get(name, "grey"),
+            lw=1.3,
+            marker="o",
+            ms=3,
+            label=name.replace("_", " "),
+        )
+    for a in (ax, bx):
+        a.axvspan(
+            pd.Timestamp(settings.oos_train_start),
+            pd.Timestamp(settings.oos_train_end),
+            color="grey",
+            alpha=0.12,
+            lw=0,
+        )
+        a.axvspan(
+            pd.Timestamp(settings.oos_train_end),
+            pd.Timestamp(settings.oos_holdout_end),
+            color="#2e86ab",
+            alpha=0.07,
+            lw=0,
+        )
+        _shade(a, settings)
+        a.grid(alpha=0.3)
+    tol = settings.oos_drift_tolerance_pct
+    bx.axhspan(-tol, tol, color="black", alpha=0.06, lw=0)
+    bx.axhline(0, color="black", lw=0.6)
+    ax.set_title(
+        f"{label}: forecasts trained on Jan to 13 Nov 2023 only (grey), "
+        "untreated hold-out year (blue)",
+        fontsize=10,
+    )
+    bx.set_title(f"Monthly forecast gap, actual vs forecast, % (band = +/-{tol:g}%)", fontsize=10)
+    ax.legend(loc="upper left", fontsize=8, frameon=False, ncol=2)
+    fig.tight_layout()
+    fig.savefig(path, dpi=130)
+    plt.close(fig)
+
+
 def event_study_plot(
     results: dict[str, dict[str, Any]], group: str, settings: Settings, path: Path
 ) -> None:

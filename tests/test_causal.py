@@ -244,3 +244,64 @@ def test_run_causal_end_to_end(sim_settings: Settings, tmp_path: Path) -> None:
     assert (out / "figures" / "synth_n_trips.png").exists()
     assert (out / "figures" / "event_study_manhattan_north.png").exists()
     assert (out / "figures" / "comparisons.png").exists()
+    assert set(bundle["synth_oos"]) == set(sim_settings.synth_outcomes)
+    assert (out / "figures" / "synth_oos_n_trips.png").exists()
+
+
+def _oos_windows(s: Settings) -> dict[str, tuple[dt.date, dt.date]]:
+    return {
+        "holdout": (s.oos_train_end + dt.timedelta(days=1), s.oos_holdout_end),
+        "holdout_late": (s.oos_holdout_end - dt.timedelta(days=90), s.oos_holdout_end),
+        "post": (s.treatment_date, dt.date(2025, 6, 30)),
+    }
+
+
+def test_oos_forecast_passes_on_stable_panel(sim_settings: Settings) -> None:
+    from roundtrip.causal import forecast
+
+    day, lookup = simulate(sim_settings)
+    groups = zone_groups(sim_settings, lookup)
+    cbd = group_series(day, groups.cbd).set_index("day")
+    donors = zone_series(day, "n_trips", groups.donors)
+    block, fits = forecast.evaluate(
+        "n_trips",
+        cbd["n_trips"],
+        donors,
+        sim_settings.oos_train_start,
+        sim_settings.oos_train_end,
+        _oos_windows(sim_settings),
+    )
+    verdict = forecast.drift_verdict(block, sim_settings.oos_drift_tolerance_pct)
+    assert verdict["simplex"]["passes"]
+    for m in forecast.MODELS:
+        r = block["models"][m]
+        assert abs(r["windows"]["holdout"]["mean_gap_pct"]) < 3
+        assert abs(r["windows"]["post"]["mean_gap_pct"] - 100 * TRUE_TRIP_EFFECT) < 4
+    assert set(fits) == set(forecast.MODELS)
+    assert "alpha" in block["models"]["ridge"]["params"]
+
+
+def test_oos_forecast_detects_drift(sim_settings: Settings) -> None:
+    from roundtrip.causal import forecast
+
+    day, lookup = simulate(sim_settings)
+    groups = zone_groups(sim_settings, lookup)
+    # CBD-only decline of 1% a month from December 2023: drift no donor shares
+    months = ((day["day"] - pd.Timestamp("2023-12-01")).dt.days / 30.4).clip(lower=0)
+    drift = np.where(day["zone_id"].isin(groups.cbd), 1 - 0.01 * months, 1.0)
+    for col in ("n_trips", "n_wait_valid", "wait_sum", "fare_sum", "pay_sum", "tips_sum"):
+        day[col] = day[col] * drift
+    cbd = group_series(day, groups.cbd).set_index("day")
+    donors = zone_series(day, "n_trips", groups.donors)
+    block, _ = forecast.evaluate(
+        "n_trips",
+        cbd["n_trips"],
+        donors,
+        sim_settings.oos_train_start,
+        sim_settings.oos_train_end,
+        _oos_windows(sim_settings),
+    )
+    verdict = forecast.drift_verdict(block, sim_settings.oos_drift_tolerance_pct)
+    assert not verdict["simplex"]["passes"]
+    assert verdict["simplex"]["late_holdout_gap_pct"] < -7
+    assert block["models"]["simplex"]["placebo"]["rank_p"] < 0.2
