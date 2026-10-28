@@ -1,0 +1,30 @@
+# data never goes in git; derived outputs live in R2 and are mirrored to data/
+data/
+*.duckdb
+*.duckdb.wal
+*.parquet
+!tests/fixtures/**/*.parquet
+.env
+.env.*
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# notebooks: outputs are cleared by pre-commit; checkpoints never committed
+.ipynb_checkpoints/
+
+# os / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
