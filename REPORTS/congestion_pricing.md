@@ -1,6 +1,6 @@
 # Congestion pricing and ride-hail in the Manhattan CBD
 
-_Candidate report, run `20261028T024152Z` (2026-10-28T02:42:08+00:00), git `2e0ede1a`,
+_Candidate report, run `20261028T024608Z` (2026-10-28T02:46:17+00:00), git `daaaa69f`,
 data 2023-01-01 to 2026-08-31 (44 months)._
 
 **Headline.** Relative to the synthetic control, CBD pickups from 2025-01-05 to 2026-01-03 show: trips -5.6% [-15.9, +4.6]; mean wait (s) -1.5% [-4.2, +1.2]; mean base fare ($) +2.0% [-0.5, +4.5] (percent of counterfactual, 95% placebo intervals).
@@ -142,6 +142,8 @@ only pre-announcement data), and when the treated zones are a random third of th
 group (true dates). The share of placebo estimates with p < 0.05 should be near 5%; a
 higher share means the clustered standard errors understate the noise for that outcome.
 
+**Fake treatment dates in 2024 produce significant 'effects' for: trips (vs inner bk queens); mean base fare ($) (vs manhattan north, inner bk queens); mean driver pay ($) (vs manhattan north, inner bk queens); shared-request share (vs manhattan north, inner bk queens).** For those outcomes the CBD was already diverging from the control group before the announcement, and the fixed-effects post estimate measures that divergence as much as the policy. Read the synthetic control and prior-year comparisons for them instead.
+
 | Kind | Outcome | Control group | n | Mean estimate | Largest abs | Share p < 0.05 |
 |---|---|---|---|---|---|---|
 | fake date | trips | inner bk queens | 3 | -0.075 | 0.084 | 100% |
@@ -172,7 +174,10 @@ higher share means the clustered standard errors understate the noise for that o
 - The anticipation window overlaps the holiday season, where the CBD's pattern differs
   from the control zones' (visible in the event-study plots at Thanksgiving and Christmas).
   The prior-year design handles this best; the pre-window design least.
-- The synthetic control's 2023 test gap bounds what the design can resolve.
+- The synthetic control's 2023 test gap bounds what the design can resolve. Its
+  placebo-in-space interval is built from single-zone placebos, which are noisier than
+  the 38-zone CBD aggregate, so that interval is conservative (too wide) and the prior-year
+  and pre-window bootstraps are the tighter guide to sampling noise.
 - Airport-bound trips are included in the CBD means (owner decision pending).
 - Benchmark comparison with published estimates: **placeholder, owner to supply**.
 
@@ -191,50 +196,50 @@ higher share means the clustered standard errors understate the noise for that o
 
 | Month | Status | Rows | Failed or warned checks |
 |---|---|---|---|
-| 2023-01 | ? | 18,479,031 | none |
-| 2023-02 | ? | 17,960,971 | none |
-| 2023-03 | ? | 20,413,539 | none |
-| 2023-04 | ? | 19,144,903 | none |
-| 2023-05 | ? | 19,847,676 | none |
-| 2023-06 | ? | 19,366,619 | none |
-| 2023-07 | ? | 19,132,131 | none |
-| 2023-08 | ? | 18,322,150 | none |
-| 2023-09 | ? | 19,851,123 | none |
-| 2023-10 | ? | 20,186,330 | none |
-| 2023-11 | ? | 19,269,250 | none |
-| 2023-12 | ? | 20,516,297 | none |
-| 2024-01 | ? | 19,663,930 | none |
-| 2024-02 | ? | 19,359,148 | none |
-| 2024-03 | ? | 21,280,788 | none |
-| 2024-04 | ? | 19,733,038 | none |
-| 2024-05 | ? | 20,704,538 | none |
-| 2024-06 | ? | 20,123,226 | none |
-| 2024-07 | ? | 19,182,934 | none |
-| 2024-08 | ? | 19,128,392 | none |
-| 2024-09 | ? | 19,209,788 | none |
-| 2024-10 | ? | 20,028,282 | none |
-| 2024-11 | ? | 19,987,533 | none |
-| 2024-12 | ? | 21,068,851 | none |
-| 2025-01 | ? | 20,405,666 | none |
-| 2025-02 | ? | 19,339,461 | none |
-| 2025-03 | ? | 20,536,879 | null_rate_band:on_scene_datetime |
-| 2025-04 | ? | 19,753,983 | null_rate_band:on_scene_datetime |
-| 2025-05 | ? | 21,091,193 | null_rate_band:on_scene_datetime |
-| 2025-06 | ? | 19,868,009 | null_rate_band:on_scene_datetime |
-| 2025-07 | ? | 19,653,012 | null_rate_band:on_scene_datetime |
-| 2025-08 | ? | 19,271,461 | null_rate_band:on_scene_datetime |
-| 2025-09 | ? | 19,434,641 | null_rate_band:on_scene_datetime |
-| 2025-10 | ? | 21,308,701 | null_rate_band:on_scene_datetime |
-| 2025-11 | ? | 20,818,240 | null_rate_band:on_scene_datetime |
-| 2025-12 | ? | 22,108,438 | null_rate_band:on_scene_datetime |
-| 2026-01 | ? | 20,940,373 | null_rate_band:on_scene_datetime |
-| 2026-02 | ? | 19,875,686 | null_rate_band:on_scene_datetime |
-| 2026-03 | ? | 22,058,358 | null_rate_band:on_scene_datetime |
-| 2026-04 | ? | 20,995,953 | null_rate_band:on_scene_datetime |
-| 2026-05 | ? | 22,125,744 | null_rate_band:on_scene_datetime |
-| 2026-06 | ? | 20,775,868 | null_rate_band:on_scene_datetime |
-| 2026-07 | ? | 20,921,249 | null_rate_band:on_scene_datetime |
-| 2026-08 | ? | 20,493,480 | null_rate_band:on_scene_datetime |
+| 2023-01 | pass | 18,479,031 | none |
+| 2023-02 | pass | 17,960,971 | none |
+| 2023-03 | pass | 20,413,539 | none |
+| 2023-04 | pass | 19,144,903 | none |
+| 2023-05 | pass | 19,847,676 | none |
+| 2023-06 | pass | 19,366,619 | none |
+| 2023-07 | pass | 19,132,131 | none |
+| 2023-08 | pass | 18,322,150 | none |
+| 2023-09 | pass | 19,851,123 | none |
+| 2023-10 | pass | 20,186,330 | none |
+| 2023-11 | pass | 19,269,250 | none |
+| 2023-12 | pass | 20,516,297 | none |
+| 2024-01 | pass | 19,663,930 | none |
+| 2024-02 | pass | 19,359,148 | none |
+| 2024-03 | pass | 21,280,788 | none |
+| 2024-04 | pass | 19,733,038 | none |
+| 2024-05 | pass | 20,704,538 | none |
+| 2024-06 | pass | 20,123,226 | none |
+| 2024-07 | pass | 19,182,934 | none |
+| 2024-08 | pass | 19,128,392 | none |
+| 2024-09 | pass | 19,209,788 | none |
+| 2024-10 | pass | 20,028,282 | none |
+| 2024-11 | pass | 19,987,533 | none |
+| 2024-12 | pass | 21,068,851 | none |
+| 2025-01 | pass | 20,405,666 | none |
+| 2025-02 | pass | 19,339,461 | none |
+| 2025-03 | warn | 20,536,879 | null_rate_band:on_scene_datetime |
+| 2025-04 | warn | 19,753,983 | null_rate_band:on_scene_datetime |
+| 2025-05 | warn | 21,091,193 | null_rate_band:on_scene_datetime |
+| 2025-06 | warn | 19,868,009 | null_rate_band:on_scene_datetime |
+| 2025-07 | warn | 19,653,012 | null_rate_band:on_scene_datetime |
+| 2025-08 | warn | 19,271,461 | null_rate_band:on_scene_datetime |
+| 2025-09 | warn | 19,434,641 | null_rate_band:on_scene_datetime |
+| 2025-10 | warn | 21,308,701 | null_rate_band:on_scene_datetime |
+| 2025-11 | warn | 20,818,240 | null_rate_band:on_scene_datetime |
+| 2025-12 | warn | 22,108,438 | null_rate_band:on_scene_datetime |
+| 2026-01 | warn | 20,940,373 | null_rate_band:on_scene_datetime |
+| 2026-02 | warn | 19,875,686 | null_rate_band:on_scene_datetime |
+| 2026-03 | warn | 22,058,358 | null_rate_band:on_scene_datetime |
+| 2026-04 | warn | 20,995,953 | null_rate_band:on_scene_datetime |
+| 2026-05 | warn | 22,125,744 | null_rate_band:on_scene_datetime |
+| 2026-06 | warn | 20,775,868 | null_rate_band:on_scene_datetime |
+| 2026-07 | warn | 20,921,249 | null_rate_band:on_scene_datetime |
+| 2026-08 | warn | 20,493,480 | null_rate_band:on_scene_datetime |
 
 ### What changed since the last approved release
 
@@ -244,8 +249,8 @@ _No approved release yet; this is the first candidate._
 
 | Field | Value |
 |---|---|
-| Run id | `20261028T024152Z` |
-| Git SHA | `2e0ede1ad68abd8c9678eaad672107daa0211d66` |
+| Run id | `20261028T024608Z` |
+| Git SHA | `daaaa69f4b6917aa8270fb489a84bc2dca64141e` |
 | Manifest hash | `d37e7e914398720f4c452eb5c71a44658116880ba69b517a50cc9a9818772976` |
 | Package version | 0.1.0 |
-| Analysis wall time | 16.6 s |
+| Analysis wall time | 9.4 s |
