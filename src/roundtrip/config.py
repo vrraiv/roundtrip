@@ -164,6 +164,9 @@ class Settings(BaseSettings):
     # --- paths -------------------------------------------------------------------------
     data_dir: Path = Path("data")
     sql_dir: Path = Path(__file__).resolve().parent.parent.parent / "sql"
+    # Linked from the public site's footer and Releases page (owner decision 2026-10-28:
+    # no data downloads on the site; readers are pointed at TLC and this repository).
+    repo_url: str = "https://github.com/vrraiv/roundtrip"
 
     # --- data source --------------------------------------------------------------------
     # TLC's CloudFront host. A ``file://`` URL pointing at a directory with the same layout
@@ -291,6 +294,11 @@ class Settings(BaseSettings):
     @property
     def releases_dir(self) -> Path:
         return self.repo_dir / "releases"
+
+    @property
+    def pages_dir(self) -> Path:
+        """Hand-written site pages (``pages/method.md``), reviewed like code."""
+        return self.repo_dir / "pages"
 
     @property
     def repo_dir(self) -> Path:

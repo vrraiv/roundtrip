@@ -273,12 +273,18 @@ def test_build_report_and_site(repo_settings: Settings, tmp_path: Path) -> None:
     assert "### Synthetic control" in summary
     site = tmp_path / "site"
     written = build_site(out, site)
-    assert (site / "index.html").exists()
-    assert (site / "congestion_pricing.html").exists()
+    for name in ("index", "trips", "waits", "fares", "method", "report", "releases"):
+        assert (site / f"{name}.html").exists(), name
     assert any(p.name == "index.html" for p in written)
-    page = (site / "congestion_pricing.html").read_text(encoding="utf-8")
+    page = (site / "report.html").read_text(encoding="utf-8")
     assert "<table>" in page
     assert "Not yet reviewed" in page
+    home = (site / "index.html").read_text(encoding="utf-8")
+    # the finding block carries the range across the three designs (-9, -8, -7)
+    assert "-7.0 to -9.0%" in home
+    assert "CBD pickups were 7.0 to 9.0% lower than in comparison zones" in home
+    assert "No reviewed release yet" in (site / "releases.html").read_text(encoding="utf-8")
+    assert "method page has not been written" in (site / "method.html").read_text(encoding="utf-8")
 
 
 def test_site_banner_shows_approval(repo_settings: Settings, tmp_path: Path) -> None:
@@ -294,3 +300,12 @@ def test_site_banner_shows_approval(repo_settings: Settings, tmp_path: Path) -> 
     assert "Reviewed release 2025-06" in page
     assert "Approved by VR on 2026-01-02" in page
     assert "Not yet reviewed" not in page
+    # the approved release is archived from its own bundle, without figures
+    archived = site / "releases" / "2025-06" / "index.html"
+    assert archived.exists()
+    assert "-7.0 to -9.0%" in archived.read_text(encoding="utf-8")
+    assert not (site / "releases" / "2025-06" / "figures").exists()
+    releases = (site / "releases.html").read_text(encoding="utf-8")
+    assert '<a href="releases/2025-06/index.html">2025-06</a>' in releases
+    assert "approve with notes" in releases
+    assert "release 2025-06, estimates bundle at git <code>abcdef123456</code>" in releases
