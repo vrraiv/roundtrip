@@ -179,7 +179,7 @@ src/roundtrip/
   storage/r2.py  R2 mirror (boto3, S3 API)
   causal/        data.py (zone-day statistics, zone groups), synth.py, comparisons.py,
                  event_study.py, run.py (estimates bundle), figures.py
-  report/        build.py (REPORTS/*.md), summary.py (tables), site.py (static HTML)
+  report/        build.py (REPORTS/*.md), summary.py (tables), site.py (the public site)
   release.py     review gate: prepare / from-issue / check / approve / reject, releases/index.json
   cli.py         typer CLI
   models/ uplift/   phase 3
@@ -189,6 +189,7 @@ sql/
   panel/         zone_hour.sql, trip_sample.sql
   causal/        zone_day.sql
 REPORTS/         candidate report, figures and the estimates bundle it was built from
+pages/           hand-written site pages (method.md), reviewed like code
 reviews/         TEMPLATE.md and one record per candidate month
 releases/        index.json (approved and rejected runs) and approved bundles
 tests/           synthetic month generator, simulated causal panel; 60 tests

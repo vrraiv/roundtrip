@@ -37,3 +37,51 @@ jobs:
 
       - name: Tests
         run: uv run pytest -q --durations=5
+
+  site-preview:
+    # On a pull request from this repository, build the public site from the committed
+    # REPORTS/ and deploy it to a Cloudflare Pages preview (pr-<number>), so site changes
+    # can be read on a phone before merging. Production only changes through publish.yml.
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --frozen
+      - name: Build the site
+        run: uv run roundtrip build-site --out site
+      - name: Cloudflare account id
+        id: cf
+        if: env.CLOUDFLARE_API_TOKEN != ''
+        run: |
+          ID=$(uv run python -c "from roundtrip.config import get_settings; print(get_settings().r2.account_id or '')")
+          echo "account_id=$ID" >> "$GITHUB_OUTPUT"
+      - name: Deploy the preview
+        id: preview
+        if: env.CLOUDFLARE_API_TOKEN != ''
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ steps.cf.outputs.account_id }}
+          command: pages deploy site --project-name=roundtrip --branch=pr-${{ github.event.number }}
+      - name: Link the preview from the PR
+        if: steps.preview.outputs.deployment-url != ''
+        run: |
+          BODY="Site preview for this PR: ${{ steps.preview.outputs.deployment-url }} (built from the committed REPORTS/; not the production site)."
+          if gh pr view ${{ github.event.number }} --json comments -q '.comments[].body' | grep -q "Site preview for this PR"; then
+            echo "preview comment already posted"
+          else
+            gh pr comment ${{ github.event.number }} --body "$BODY"
+          fi
