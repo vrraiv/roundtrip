@@ -112,7 +112,11 @@ def _bundle(path: Path, run_id: str = "r1", data_end: str = "2025-06-30") -> Pat
                 "test_2023": {
                     "windows": {"placebo_2023": {"mean_gap_pct": -1.0, "rmspe_ratio": 1.1}}
                 },
-                "series": {"day": [], "actual": [], "synthetic": []},
+                "series": {
+                    "day": [f"2024-12-{d:02d}" for d in range(1, 29)],
+                    "actual": [100.0 + d for d in range(28)],
+                    "synthetic": [110.0 + d for d in range(28)],
+                },
             }
         },
         "event_study": {
@@ -283,6 +287,14 @@ def test_build_report_and_site(repo_settings: Settings, tmp_path: Path) -> None:
     # the finding block carries the range across the three designs (-9, -8, -7)
     assert "-7.0 to -9.0%" in home
     assert "CBD pickups were 7.0 to 9.0% lower than in comparison zones" in home
+    # the effect chart is inline SVG with a table of the same numbers under it
+    assert 'class="panel viz viz-dots"' in home and "<svg" in home
+    assert "<td>Trips</td><td>synthetic control</td><td>-8.0%</td>" in home
+    trips = (site / "trips.html").read_text(encoding="utf-8")
+    assert 'class="panel viz viz-lines"' in trips
+    assert "<td>2024-12-01</td><td>103</td><td>113</td>" in trips
+    assert "figures/synth_n_trips.png" not in trips
+    assert (site / "figures" / "comparisons.png").exists()  # still used by the report page
     assert "No reviewed release yet" in (site / "releases.html").read_text(encoding="utf-8")
     assert "method page has not been written" in (site / "method.html").read_text(encoding="utf-8")
 
@@ -304,6 +316,8 @@ def test_site_banner_shows_approval(repo_settings: Settings, tmp_path: Path) -> 
     archived = site / "releases" / "2025-06" / "index.html"
     assert archived.exists()
     assert "-7.0 to -9.0%" in archived.read_text(encoding="utf-8")
+    assert "viz-dots" in archived.read_text(encoding="utf-8")  # charts come from the bundle
+    assert "viz-lines" in (site / "releases" / "2025-06" / "trips.html").read_text(encoding="utf-8")
     assert not (site / "releases" / "2025-06" / "figures").exists()
     releases = (site / "releases.html").read_text(encoding="utf-8")
     assert '<a href="releases/2025-06/index.html">2025-06</a>' in releases

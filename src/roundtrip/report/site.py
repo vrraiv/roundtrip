@@ -10,8 +10,8 @@ scripts, no downloads (readers are pointed at TLC and the repository).
 
 Each approved release is also rendered under ``releases/<month>/`` from its archived bundle,
 so a number cited by release month keeps resolving after later releases replace the front
-page. Archived releases have no figures; the charts that replace them are built from the
-bundle (next PR).
+page. The two charts (``charts.py``) are inline SVG built from the bundle, so archived
+releases carry them too; the PNG figures are only used by the Report page.
 """
 
 from __future__ import annotations
@@ -26,6 +26,7 @@ from typing import Any
 
 import markdown
 
+from roundtrip.report.charts import CHART_CSS, CHART_JS, effect_chart, series_chart
 from roundtrip.report.summary import DESIGN_LABELS
 
 REPORT_MD = "congestion_pricing.md"
@@ -93,7 +94,7 @@ CSS = """
 @media (prefers-color-scheme: dark) {
   :root { --bg: #15171a; --fg: #e8e6e1; --muted: #9a9a94; --rule: #2d3035;
           --accent: #6fb3cc; --accent-soft: #6fb3cc1f; --warn: #e09a4a; --warn-soft: #e09a4a1f;
-          --card: #1c1f23; --panel: #f4f4f1; }
+          --card: #1c1f23; --panel: #1c1f23; }
 }
 * { box-sizing: border-box; }
 html { background: var(--bg); }
@@ -148,7 +149,6 @@ p { margin: 0.6rem 0 0.9rem; }
 figure { margin: 1.4rem 0; }
 figure .panel { background: var(--panel); border-radius: 8px; padding: 0.6rem;
                 border: 1px solid var(--rule); }
-figure img { display: block; width: 100%; height: auto; }
 figcaption { color: var(--muted); font-size: 0.85rem; margin-top: 0.5rem; }
 .table-wrap { overflow-x: auto; margin: 1rem 0; }
 table { border-collapse: collapse; width: 100%; font-size: 0.92em;
@@ -182,7 +182,8 @@ footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--rule);
 PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{title}</title><style>{css}</style></head>
+<title>{title}</title><style>{css}
+{chart_css}</style></head>
 <body>
 <header><a class="brand" href="{home}">roundtrip<small>NYC ride-hail economics</small></a>
 <nav>{nav}</nav></header>
@@ -190,6 +191,7 @@ PAGE = """<!doctype html>
 {body}
 </main>
 <footer>{footer}</footer>
+<script>{js}</script>
 </body></html>
 """
 
@@ -419,20 +421,13 @@ def _finding_block(o: Outcome, bundle: dict[str, Any]) -> str:
     )
 
 
-def home_html(bundle: dict[str, Any], has_figures: bool) -> str:
+def home_html(bundle: dict[str, Any]) -> str:
     parts = [
         "<h1>Congestion pricing and ride-hail in the Manhattan CBD</h1>",
         f'<p class="purpose">{PURPOSE}</p>',
         '<div class="findings">' + "".join(_finding_block(o, bundle) for o in OUTCOMES) + "</div>",
     ]
-    if has_figures:
-        parts.append(
-            '<figure><div class="panel"><img src="figures/comparisons.png" alt="First-year '
-            'effect on the CBD under three comparisons, with 95% intervals"></div>'
-            "<figcaption>First-year effect under the three comparisons, with 95% intervals. "
-            "Each is net of what happened in comparable zones outside the CBD.</figcaption>"
-            "</figure>"
-        )
+    parts.append(effect_chart([(o.title, post_estimates(bundle, o.key)) for o in OUTCOMES]))
     w = bundle.get("windows", {})
     post = w.get("post", {})
     parts.append(
@@ -472,7 +467,7 @@ def _estimates_table(bundle: dict[str, Any], outcome: str) -> str:
     return "".join(out)
 
 
-def outcome_html(o: Outcome, bundle: dict[str, Any], has_figures: bool) -> str:
+def outcome_html(o: Outcome, bundle: dict[str, Any]) -> str:
     rows = post_estimates(bundle, o.key)
     rng = effect_range(rows)
     d = drift(bundle, o.key)
@@ -480,13 +475,7 @@ def outcome_html(o: Outcome, bundle: dict[str, Any], has_figures: bool) -> str:
         f"<h1>{o.title}</h1>",
         f'<p class="purpose">{html.escape(finding_sentence(o, rng, d))}</p>',
     ]
-    if has_figures:
-        parts.append(
-            f'<figure><div class="panel"><img src="figures/synth_{o.key}.png" alt="{o.title}: '
-            'CBD actual and synthetic control, weekly"></div><figcaption>CBD actual and its '
-            "synthetic control, weekly means. The anticipation window and the first year of "
-            "the charge are shaded.</figcaption></figure>"
-        )
+    parts.append(series_chart(bundle, o.key, o.title))
     parts.append("<h2>Estimates</h2>")
     parts.append(
         "<p>Each comparison nets the CBD against comparable zones outside it. The anticipation "
@@ -615,7 +604,14 @@ def _write(
     # the status line sits under the page title, not above it
     body = body.replace("</h1>", "</h1>\n" + banner, 1) if "</h1>" in body else banner + body
     page = PAGE.format(
-        title=html.escape(title), css=CSS, nav=nav, home=home, body=body, footer=footer
+        title=html.escape(title),
+        css=CSS,
+        chart_css=CHART_CSS,
+        js=CHART_JS,
+        nav=nav,
+        home=home,
+        body=body,
+        footer=footer,
     )
     dest = out_dir / name
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -628,16 +624,10 @@ def render_release(
     bundle: dict[str, Any],
     entry: dict[str, Any] | None,
     repo_url: str,
-    figures_dir: Path | None,
     nav_prefix: str = "",
 ) -> list[Path]:
     """Home and the three outcome pages for one bundle. Used for the live site and for each
-    archived release (where ``figures_dir`` is None)."""
-    has_figures = figures_dir is not None and figures_dir.exists()
-    if has_figures and figures_dir is not None:
-        (out_dir / "figures").mkdir(parents=True, exist_ok=True)
-        for f in figures_dir.glob("*.png"):
-            shutil.copy2(f, out_dir / "figures" / f.name)
+    archived release; the charts are built from the bundle."""
     banner = _banner_html(entry, str(bundle.get("run_id")))
     footer = _footer(bundle, entry, repo_url)
     written = [
@@ -645,7 +635,7 @@ def render_release(
             out_dir,
             "index.html",
             "Congestion pricing and ride-hail in the Manhattan CBD",
-            home_html(bundle, has_figures),
+            home_html(bundle),
             banner,
             _nav("index.html", nav_prefix),
             footer,
@@ -658,7 +648,7 @@ def render_release(
                 out_dir,
                 o.page,
                 f"{o.title}: congestion pricing and ride-hail in the CBD",
-                outcome_html(o, bundle, has_figures),
+                outcome_html(o, bundle),
                 banner,
                 _nav(o.page, nav_prefix),
                 footer,
@@ -682,7 +672,13 @@ def build_site(
     bundle_path = reports_dir / "estimates.json"
     bundle = load_bundle(bundle_path) if bundle_path.exists() else {}
     entry = latest_approval(releases_dir)
-    written = render_release(out_dir, bundle, entry, repo_url, reports_dir / "figures")
+    written = render_release(out_dir, bundle, entry, repo_url)
+    # the Report page embeds the PNG figures from the report build
+    figures = reports_dir / "figures"
+    if figures.exists():
+        (out_dir / "figures").mkdir(parents=True, exist_ok=True)
+        for f in figures.glob("*.png"):
+            shutil.copy2(f, out_dir / "figures" / f.name)
 
     # archived releases, each from its own bundle
     archive: list[str] = []
@@ -698,7 +694,7 @@ def build_site(
             if not p.exists():
                 continue
             written += render_release(
-                out_dir / "releases" / month, load_bundle(p), e, repo_url, None, "../../"
+                out_dir / "releases" / month, load_bundle(p), e, repo_url, "../../"
             )
             archive.append(month)
 
