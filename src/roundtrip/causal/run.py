@@ -14,6 +14,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from roundtrip import __version__
@@ -163,6 +164,7 @@ def run_causal(settings: Settings, out_dir: Path | None = None, quick: bool = Fa
 
     # --- out-of-sample test of the synthetic control -----------------------------------
     synth_oos: dict[str, Any] = {}
+    oos_fits: dict[str, dict[str, forecast.Forecast]] = {}
     hold_start = settings.oos_train_end + dt.timedelta(days=1)
     if data_end >= settings.oos_holdout_end:
         oos_windows = {
@@ -184,6 +186,7 @@ def run_causal(settings: Settings, out_dir: Path | None = None, quick: bool = Fa
                 oos_windows,
             )
             block["verdict"] = forecast.drift_verdict(block, settings.oos_drift_tolerance_pct)
+            oos_fits[outcome] = fits
             for res in block["models"].values():
                 w = res["params"].get("weights")
                 if w:
@@ -199,6 +202,93 @@ def run_causal(settings: Settings, out_dir: Path | None = None, quick: bool = Fa
                 {
                     m: round(r["windows"]["holdout"]["mean_gap_pct"], 2)
                     for m, r in block["models"].items()
+                },
+            )
+
+    # --- change-point tests and design variants (owner, 2026-10-28) --------------------
+    # Is the CBD's loss of share a step or a trend? Test the log share of the CBD in the
+    # donor pool over the pre-policy period, with every donor as a placebo, and the
+    # out-of-sample forecast gaps. Then fit the intercept and SDID variants on the full
+    # pre-policy window so their first-year estimates can be compared with the design's.
+    break_tests: dict[str, Any] = {}
+    synth_variants: dict[str, Any] = {}
+
+    def _pre(series: pd.Series) -> pd.Series:
+        m = (series.index >= pd.Timestamp(data_start)) & (series.index <= pd.Timestamp(fit_end))
+        return series[m]
+
+    def _log_pct(x: pd.Series) -> pd.Series:
+        return pd.Series(100 * np.log(x.to_numpy(dtype=float)), index=x.index)
+
+    def _between(series: pd.Series, s: dt.date, e: dt.date) -> pd.Series:
+        m = (series.index >= pd.Timestamp(s)) & (series.index <= pd.Timestamp(e))
+        return series[m]
+
+    for outcome in settings.synth_outcomes:
+        wide = _usable_donors(zone_series(day, outcome, groups.donors), data_start, data_end)
+        agg = donors_agg[outcome]
+        cbd_cp = forecast.change_point(_pre(_log_pct(cbd[outcome] / agg)))
+        donor_cps = []
+        for z in wide.columns:
+            cp = forecast.change_point(_pre(_log_pct(wide[z] / agg.reindex(wide.index))))
+            if "sup_f" in cp:
+                donor_cps.append(cp)
+        n_ge = sum(cp["sup_f"] >= cbd_cp.get("sup_f", np.inf) for cp in donor_cps)
+        entry: dict[str, Any] = {
+            "share": cbd_cp,
+            "placebo": {
+                "n": len(donor_cps),
+                "rank_p": (1 + n_ge) / (1 + len(donor_cps)) if donor_cps else None,
+                "median_abs_shift": (
+                    float(np.median([abs(cp["shift"]) for cp in donor_cps])) if donor_cps else None
+                ),
+                "step_preferred_share": (
+                    float(
+                        np.mean([r["preferred"] in ("step", "step_and_trend") for r in donor_cps])
+                    )
+                    if donor_cps
+                    else None
+                ),
+            },
+            "oos_gap": {},
+        }
+        for m, f in oos_fits.get(outcome, {}).items():
+            g = f.gap_pct
+            entry["oos_gap"][m] = {
+                "holdout": forecast.change_point(_between(g, hold_start, settings.oos_holdout_end)),
+                "train_and_holdout": forecast.change_point(
+                    _between(g, settings.oos_train_start, settings.oos_holdout_end)
+                ),
+            }
+        break_tests[outcome] = entry
+        log.info(
+            "break test %s: share break %s shift %.2f sup_f %.1f preferred %s placebo p %s",
+            outcome,
+            cbd_cp.get("break_week"),
+            cbd_cp.get("shift", float("nan")),
+            cbd_cp.get("sup_f", float("nan")),
+            cbd_cp.get("preferred"),
+            entry["placebo"]["rank_p"],
+        )
+        if "post" in windows:
+            vwindows = {"late_fit": (fit_end - dt.timedelta(days=90), fit_end), **windows}
+            vblock, _ = forecast.evaluate(
+                outcome, cbd[outcome], wide, data_start, fit_end, vwindows, placebo_window="post"
+            )
+            for res in vblock["models"].values():
+                w = res["params"].get("weights")
+                if w:
+                    res["params"]["weights"] = {
+                        f"{z} {groups.label(int(z))}": v
+                        for z, v in sorted(w.items(), key=lambda kv: -kv[1])[:6]
+                    }
+            synth_variants[outcome] = vblock
+            log.info(
+                "variants %s: post gap %s",
+                outcome,
+                {
+                    m: round(r["windows"]["post"]["mean_gap_pct"], 2)
+                    for m, r in vblock["models"].items()
                 },
             )
 
@@ -323,6 +413,8 @@ def run_causal(settings: Settings, out_dir: Path | None = None, quick: bool = Fa
         "estimates": estimates,
         "synth": synth,
         "synth_oos": synth_oos,
+        "break_tests": break_tests,
+        "synth_variants": synth_variants,
         "prior_year_placebo": prior_year_placebo,
         "event_study": es,
         "placebos": placebo_rows,

@@ -128,6 +128,9 @@ def _synth_diag(bundle: dict[str, Any]) -> str:
 
 
 OOS_LABELS = {
+    "intercept": "intercept",
+    "sdid": "synthetic DiD",
+    "anchored": "anchored (last 90 days)",
     "simplex": "simplex weights (current design)",
     "ridge": "ridge regression",
 }
@@ -162,10 +165,15 @@ def _oos_section(bundle: dict[str, Any]) -> str:
                 f"{_fmt(w['holdout_late']['mean_gap_pct'])}% | "
                 f"{_fmt(w.get('anticipation', {}).get('mean_gap_pct'))}% | "
                 f"{_fmt(w.get('post', {}).get('mean_gap_pct'))}% | "
-                f"{r['placebo']['rank_p']:.2f} | {'yes' if v['passes'] else 'no'} |"
+                f"{r['placebo']['rank_p']:.2f} | {'yes' if v['passes'] else 'no'}"
+                f"{'' if v.get('counts', True) else ' (reported only)'} |"
             )
     passing = {
-        o: [OOS_LABELS.get(m, m) for m, v in b["verdict"].items() if v["passes"]]
+        o: [
+            OOS_LABELS.get(m, m)
+            for m, v in b["verdict"].items()
+            if v["passes"] and v.get("counts", True)
+        ]
         for o, b in oos.items()
     }
     lines += [""]

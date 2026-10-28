@@ -245,9 +245,22 @@ def test_run_causal_end_to_end(sim_settings: Settings, tmp_path: Path) -> None:
     assert (out / "figures" / "event_study_manhattan_north.png").exists()
     assert (out / "figures" / "comparisons.png").exists()
     assert set(bundle["synth_oos"]) == set(sim_settings.synth_outcomes)
+    bt = bundle["break_tests"]["n_trips"]
+    assert "sup_f" in bt["share"] and bt["placebo"]["n"] > 0
+    assert set(bt["oos_gap"]) == set(forecast_models())
+    sv = bundle["synth_variants"]["n_trips"]["models"]
+    assert set(sv) == set(forecast_models())
+    for m, r in sv.items():
+        assert abs(r["windows"]["post"]["mean_gap_pct"] - 100 * TRUE_TRIP_EFFECT) < 4, m
     py = [e for e in bundle["prior_year_placebo"] if e["outcome"] == "n_trips" and e["adjusted"]]
     assert abs(py[0]["effect_pct"]) < 2
     assert (out / "figures" / "synth_oos_n_trips.png").exists()
+
+
+def forecast_models() -> tuple[str, ...]:
+    from roundtrip.causal import forecast
+
+    return forecast.MODELS
 
 
 def _oos_windows(s: Settings) -> dict[str, tuple[dt.date, dt.date]]:
