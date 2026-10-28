@@ -5,13 +5,29 @@ the TLC High Volume For-Hire Vehicle trip records (Uber and Lyft, 15–20 millio
 month), with causal inference, heterogeneous-effect estimation and standard ML on top, and a
 human review gate before anything is published.
 
-**Status: phase 1 (scaffold, ingest, validation, zone-hour panel, CI).** No estimates yet.
-The headline figure and three headline numbers with intervals arrive with phase 2.
+![Post-period effects on the CBD under three comparisons](REPORTS/figures/comparisons.png)
+
+**Headline (candidate, not yet reviewed).** In the first year of congestion pricing
+(5 January 2025 to 3 January 2026), relative to the counterfactual and net of what
+happened in comparable zones outside the CBD:
+
+| Outcome | Prior-year comparison | Synthetic control | Pre-window comparison |
+|---|---|---|---|
+| CBD pickups | -4.6% [-5.2, -3.9] | -5.6% [-15.9, +4.6] | -4.8% [-6.7, -2.8] |
+| Mean wait for a car | -5.0% [-6.0, -4.1] | -1.5% [-4.2, +1.2] | -5.4% [-7.2, -3.6] |
+| Mean base fare | +6.1% [+5.6, +6.6] | +2.0% [-0.5, +4.5] | +6.4% [+4.5, +8.5] |
+
+95% intervals; the synthetic control's are placebo-based and conservative. Full report
+with diagnostics, placebos and limitations: [REPORTS/congestion_pricing.md](REPORTS/congestion_pricing.md).
+These numbers are a candidate until the owner approves a release; see
+[releases/index.json](releases/index.json) for what has been approved.
+
+**Status: phase 2 (event study, synthetic control, report, review gate).**
 
 | Phase | Scope | State |
 |---|---|---|
-| 1 | Config, ingest two months, validation suite, zone-hour panel, CI green | this commit |
-| 2 | Congestion-pricing event study, diagnostics, first report, review gate, candidate PR end to end | next |
+| 1 | Config, ingest, validation suite, zone-hour panel, CI green | done; 44 months in R2 |
+| 2 | Congestion-pricing analyses, diagnostics, first report, review gate, candidate PR end to end | this PR; HTE causal forest deferred |
 | 3 | Wait-time and driver-pay models with drift monitoring; uplift on an RCT | later |
 | 4 | Optional: Chicago, weather, interactive site | maybe |
 
@@ -63,9 +79,14 @@ Things the reviewer should know from these two months:
    trip-level sample with sampling weights, both as parquet.
 5. **Record.** A `run.json` with git SHA, manifest hash, package versions and the full
    config. Derived outputs are mirrored to Cloudflare R2 under 2 GB total.
-6. **Candidate PR.** `candidate: YYYY-MM` with the validation report and manifest. Phase 2
-   adds the reports, estimate diffs against the last approved release, and the review
-   record that a CI check requires before the `release` environment can approve.
+6. **Analyse.** On the full panel: synthetic control for the CBD (with the 2023 test
+   window and placebo-in-space), the three comparisons (prior year, synthetic control,
+   pre-window), zone-week event studies against two control groups with pre-trend tests,
+   fake-date and fake-zone placebos. One `estimates.json` bundle plus figures.
+7. **Report and candidate PR.** `REPORTS/congestion_pricing.md` is rebuilt from the bundle
+   with a review dashboard (validation table, estimates side by side with the last
+   approved release, what changed). The PR `candidate: YYYY-MM` carries the report, the
+   review record to fill in, the validation reports and the manifest.
 
 Processing one month is one GitHub Actions job (4 cores, 16 GB; DuckDB capped at 10 GB
 and 4 threads). The backfill workflow loops over a range of months sequentially and prints
@@ -86,13 +107,26 @@ Raw data never enters git or R2. Only derived outputs do.
 
 ## Review process
 
-The owner (an economist) is the reviewer. Every candidate PR carries the validation report
-and, from phase 2, side-by-side estimates against the last approved release, placebo
-results, drift metrics and a plain-language list of what changed. Approval happens through
-the GitHub `release` environment; the review record in `reviews/YYYY-MM.md` must be filled
-in first, and `releases/index.json` records every approved run with git SHA, manifest hash,
-reviewer and date. Rejections are recorded too. Git history should show, month by month,
-what was looked at and when the answer was no.
+The owner (an economist) is the reviewer. Every candidate PR carries the validation
+reports, the estimates side by side with the last approved release, placebo results and a
+plain-language list of what changed. The steps:
+
+1. Read `REPORTS/congestion_pricing.md` on the candidate PR, "What the reviewer should
+   look at" first.
+2. Fill in `reviews/YYYY-MM.md` (every `_fill_` must go; the `review-check` workflow
+   fails the PR otherwise) and merge the PR, or reject it with
+   `roundtrip release reject --month YYYY-MM --reason "..."`, which closes the PR and
+   records the reason.
+3. Run `publish.yml` for that month. It checks the review record, then waits for approval
+   in the GitHub `release` environment (required reviewer: the owner), then records the
+   approval in `releases/index.json`, keeps the approved `estimates.json` under
+   `releases/YYYY-MM/`, builds the static site from `REPORTS/` and deploys it to Cloudflare
+   Pages.
+
+`releases/index.json` lists every approved and rejected run with git SHA, manifest hash,
+reviewer and date, so git history shows, month by month, what was looked at and when the
+answer was no. One-time setup for the owner: create the `release` environment in the
+repository settings with yourself as required reviewer.
 
 ## Reproduce locally
 
@@ -104,6 +138,10 @@ uv run roundtrip process-month -m 2024-12 --keep-raw   # ~1 GB download, a few m
 uv run roundtrip validate -m 2024-12     # re-run checks on the cached raw file
 uv run roundtrip build-panel -m 2024-12  # rebuild panel and sample from the cache
 uv run roundtrip sync                    # pull derived outputs from R2 (needs .env)
+uv run roundtrip run-causal              # analyses on every panel month on disk (~20 s)
+uv run roundtrip report                  # REPORTS/congestion_pricing.md from the newest run
+uv run roundtrip release prepare -m 2026-08   # review record from the template
+uv run roundtrip build-site --out site   # static HTML from REPORTS/
 ```
 
 Outputs land under `data/derived/` (git-ignored). Set `ROUNDTRIP_DATA_DIR` to keep the
@@ -125,17 +163,28 @@ src/roundtrip/
   features/      zone-hour panel and trip sample
   pipeline.py    per-month orchestration, run.json
   storage/r2.py  R2 mirror (boto3, S3 API)
+  causal/        data.py (zone-day statistics, zone groups), synth.py, comparisons.py,
+                 event_study.py, run.py (estimates bundle), figures.py
+  report/        build.py (REPORTS/*.md), summary.py (tables), site.py (static HTML)
+  release.py     review gate: prepare / check / approve / reject, releases/index.json
   cli.py         typer CLI
-  causal/ models/ uplift/ report/   phases 2–3
+  models/ uplift/   phase 3
 sql/
   views/         trips.sql, zones.sql
   checks/        timestamps, money, zones, bases
   panel/         zone_hour.sql, trip_sample.sql
-tests/           synthetic month generator + 45 tests (schema, checks, panel, pipeline, CLI)
+  causal/        zone_day.sql
+REPORTS/         candidate report, figures and the estimates bundle it was built from
+reviews/         TEMPLATE.md and one record per candidate month
+releases/        index.json (approved and rejected runs) and approved bundles
+tests/           synthetic month generator, simulated causal panel; 59 tests
 .github/workflows/
-  ci.yml         ruff, mypy --strict, pytest on every PR
-  backfill.yml   manual: process a range of months, one job per month, with profiling
-  monthly.yml    weekly cron: discover, process, push to R2, open candidate PR
+  ci.yml           ruff, mypy --strict, pytest on every PR
+  backfill.yml     process a range of months, one job per month, with profiling
+  monthly.yml      weekly: discover, process, push to R2, analyse, open candidate PR
+  analysis.yml     re-run the analyses and rebuild the report on demand
+  review-check.yml fail a candidate PR whose review record is unfilled
+  publish.yml      release-environment approval, record it, deploy the site to Pages
 ```
 
 See [METHODS.md](METHODS.md) for how the code was produced and validated, including the use
@@ -155,4 +204,8 @@ either).
 Still open:
 
 - Whether to drop airport trips (default keeps them; `ROUNDTRIP_EXCLUDE_AIRPORT_TRIPS`).
-- Benchmark estimates to compare against.
+  Note the panel can only drop airport pickup zones, not airport-bound trips from other
+  zones; excluding the latter needs an extra set of panel columns and a re-backfill.
+- Benchmark estimates to compare against (placeholder in the report).
+- Whether the deferred pieces of the brief's section 6a are wanted next: causal-forest
+  heterogeneity on zone-hour cells and hour-of-day splits.

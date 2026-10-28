@@ -59,9 +59,17 @@ def _validation_table(settings: Settings, months: list[str]) -> str:
             continue
         found += 1
         r = json.loads(p.read_text(encoding="utf-8"))
-        flagged = [c["name"] for c in r.get("checks", []) if not c.get("passed", True)]
+        checks = r.get("checks", [])
+        failed = [c for c in checks if not c.get("passed", True)]
+        if any(c.get("severity") == "hard" for c in failed):
+            status = "fail"
+        elif failed:
+            status = "warn"
+        else:
+            status = "pass"
+        flagged = [c["name"] for c in failed]
         lines.append(
-            f"| {m} | {r.get('status', '?')} | {r.get('row_count', 0):,} | "
+            f"| {m} | {status} | {r.get('row_count', 0):,} | "
             f"{', '.join(flagged) if flagged else 'none'} |"
         )
     if not found:
@@ -117,6 +125,31 @@ def _synth_diag(bundle: dict[str, Any]) -> str:
             f"{'n/a' if p_post is None else f'{p_post:.2f}'}."
         )
     return "\n".join(out) if out else "_2023 test not available (needs data through January 2024)._"
+
+
+def _placebo_verdict(bundle: dict[str, Any]) -> str:
+    rows = [r for r in bundle["placebos"] if r["kind"] == "fake_date"]
+    if not rows:
+        return ""
+    bad: dict[str, list[str]] = {}
+    for o in dict.fromkeys(r["outcome"] for r in rows):
+        for g in dict.fromkeys(r["control_group"] for r in rows):
+            sub = [r for r in rows if r["outcome"] == o and r["control_group"] == g]
+            if sub and sum(r["p"] < 0.05 for r in sub) / len(sub) > 0.5:
+                bad.setdefault(OUTCOME_LABELS.get(o, o), []).append(g.replace("_", " "))
+    if not bad:
+        return (
+            "Fake treatment dates in 2024 produce no significant 'effects', so the "
+            "fixed-effects design is not picking up a pre-existing divergence."
+        )
+    items = "; ".join(f"{o} (vs {', '.join(gs)})" for o, gs in bad.items())
+    return (
+        "**Fake treatment dates in 2024 produce significant 'effects' for: "
+        f"{items}.** For those outcomes the CBD was already diverging from the control "
+        "group before the announcement, and the fixed-effects post estimate measures that "
+        "divergence as much as the policy. Read the synthetic control and prior-year "
+        "comparisons for them instead."
+    )
 
 
 def build_report(
@@ -260,6 +293,8 @@ only pre-announcement data), and when the treated zones are a random third of th
 group (true dates). The share of placebo estimates with p < 0.05 should be near 5%; a
 higher share means the clustered standard errors understate the noise for that outcome.
 
+{_placebo_verdict(bundle)}
+
 {placebo_table(bundle)}
 
 ## Limitations
@@ -271,7 +306,10 @@ higher share means the clustered standard errors understate the noise for that o
 - The anticipation window overlaps the holiday season, where the CBD's pattern differs
   from the control zones' (visible in the event-study plots at Thanksgiving and Christmas).
   The prior-year design handles this best; the pre-window design least.
-- The synthetic control's 2023 test gap bounds what the design can resolve.
+- The synthetic control's 2023 test gap bounds what the design can resolve. Its
+  placebo-in-space interval is built from single-zone placebos, which are noisier than
+  the 38-zone CBD aggregate, so that interval is conservative (too wide) and the prior-year
+  and pre-window bootstraps are the tighter guide to sampling noise.
 - Airport-bound trips are included in the CBD means (owner decision pending).
 - Benchmark comparison with published estimates: **placeholder, owner to supply**.
 
