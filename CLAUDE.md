@@ -16,3 +16,6 @@
   `report/build.py` turns it into `REPORTS/congestion_pricing.md`; `release.py` is the
   review gate. Keep the bundle self-contained: the report and the dashboard read nothing
   else.
+- The owner reviews from a phone: the review issue form (`.github/ISSUE_TEMPLATE/review.yml`)
+  and `review.yml` write `reviews/YYYY-MM.md` and drive publishing. Keep the form's field
+  labels equal to the record's section headings; `release.from_form` relies on that.

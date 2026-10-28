@@ -55,13 +55,27 @@ def latest_approval(releases_dir: Path | None) -> dict[str, Any] | None:
     return entry
 
 
-def approval_banner(entry: dict[str, Any] | None) -> str:
-    """Markdown placed above every page: who approved which run, and their notes."""
-    if entry is None:
-        return (
+def bundle_run_id(reports_dir: Path) -> str | None:
+    p = reports_dir / "estimates.json"
+    if not p.exists():
+        return None
+    run = json.loads(p.read_text(encoding="utf-8")).get("run_id")
+    return None if run is None else str(run)
+
+
+def approval_banner(entry: dict[str, Any] | None, run_id: str | None = None) -> str:
+    """Markdown placed above every page: who approved which run, and their notes. A report
+    built from a run other than the approved one (a candidate preview) says so instead."""
+    if entry is None or (run_id is not None and str(entry.get("run_id")) != run_id):
+        text = (
             "> **Not yet reviewed.** These estimates are a candidate and have not been "
-            "approved by the reviewer.\n\n"
+            "approved by the reviewer."
         )
+        if run_id is not None:
+            text += f" Candidate run `{run_id}`."
+        if entry is not None:
+            text += f" The last approved release is {entry['month']} (run `{entry['run_id']}`)."
+        return text + "\n\n"
     text = (
         f"> **Reviewed release {entry['month']}.** Approved by {entry['reviewer']} on "
         f"{entry['date']} ({entry['status']}); run `{entry['run_id']}`, git "
@@ -77,7 +91,7 @@ def build_site(reports_dir: Path, out_dir: Path, releases_dir: Path | None = Non
     """Render every ``*.md`` in ``reports_dir`` to ``out_dir`` and copy figures, with an
     approval banner from ``releases_dir/index.json`` on every page."""
     out_dir.mkdir(parents=True, exist_ok=True)
-    banner = approval_banner(latest_approval(releases_dir))
+    banner = approval_banner(latest_approval(releases_dir), bundle_run_id(reports_dir))
     pages = sorted(reports_dir.glob("*.md"))
     nav = " ".join(
         f'<a href="{p.stem}.html">{html.escape(_title(p.read_text(encoding="utf-8"), p.stem))}</a>'

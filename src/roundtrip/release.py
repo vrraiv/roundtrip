@@ -7,6 +7,10 @@
   reviewer, date, decision, reason) and, on approval, copy the estimates bundle into
   ``releases/<month>/`` so the next candidate can be diffed against it.
 
+- ``from_form``: the same record written from a submitted review issue form
+  (``.github/ISSUE_TEMPLATE/review.yml``), so the reviewer never edits Markdown by hand;
+  ``review.yml`` runs it when a ``review`` issue is opened.
+
 Approval itself happens through the GitHub ``release`` environment; ``approve`` is what the
 publish workflow runs after that approval.
 """
@@ -27,6 +31,7 @@ from roundtrip.config import Settings, validate_month
 log = logging.getLogger(__name__)
 
 FILL = "_fill_"
+NO_RESPONSE = "_No response_"  # what GitHub renders for an empty issue-form field
 DECISIONS = ("approve", "reject", "approve with notes")
 REQUIRED_SECTIONS = (
     "Data checks acknowledged",
@@ -88,6 +93,14 @@ def _bundle_ids(bundle_path: Path | None) -> dict[str, str]:
     }
 
 
+def _render_template(settings: Settings, month: str, ids: dict[str, str]) -> str:
+    template = (settings.reviews_dir / "TEMPLATE.md").read_text(encoding="utf-8")
+    text = template.replace("{month}", validate_month(month))
+    for k, v in ids.items():
+        text = text.replace("{" + k + "}", v)
+    return text
+
+
 def prepare(
     settings: Settings, month: str, bundle_path: Path | None = None, force: bool = False
 ) -> Path:
@@ -97,31 +110,76 @@ def prepare(
     if path.exists() and not force:
         log.info("%s exists; not overwritten", path)
         return path
-    template = (settings.reviews_dir / "TEMPLATE.md").read_text(encoding="utf-8")
-    text = template.replace("{month}", validate_month(month))
-    for k, v in _bundle_ids(bundle_path).items():
-        text = text.replace("{" + k + "}", v)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
+    path.write_text(_render_template(settings, month, _bundle_ids(bundle_path)), encoding="utf-8")
     return path
 
 
-def parse(path: Path) -> dict[str, str]:
-    """Section heading -> body text (stripped), for the '## ' sections."""
-    text = path.read_text(encoding="utf-8")
+def _split(text: str, marker: str) -> dict[str, str]:
+    """Heading -> body (stripped) for every line starting with ``marker``."""
     sections: dict[str, str] = {}
     current: str | None = None
     buf: list[str] = []
-    for line in text.splitlines():
-        if line.startswith("## "):
+    for line in text.replace("\r\n", "\n").splitlines():
+        if line.startswith(marker):
             if current is not None:
                 sections[current] = "\n".join(buf).strip()
-            current, buf = line[3:].strip(), []
+            current, buf = line[len(marker) :].strip(), []
         elif current is not None:
             buf.append(line)
     if current is not None:
         sections[current] = "\n".join(buf).strip()
     return sections
+
+
+def parse(path: Path) -> dict[str, str]:
+    """Section heading -> body text (stripped), for the '## ' sections."""
+    return _split(path.read_text(encoding="utf-8"), "## ")
+
+
+def parse_form(body: str) -> dict[str, str]:
+    """Field label -> answer from a submitted issue form. GitHub renders each field as a
+    ``### Label`` heading followed by the answer, and empty fields as ``_No response_``."""
+    return {k: ("" if v == NO_RESPONSE else v) for k, v in _split(body, "### ").items()}
+
+
+def from_form(
+    settings: Settings,
+    fields: dict[str, str],
+    reviewer: str,
+    date: str,
+    bundle_path: Path | None = None,
+) -> tuple[Path, list[str]]:
+    """Write ``reviews/YYYY-MM.md`` from issue-form answers (labels match the record's
+    section headings; ``Month`` and ``Run id`` fill the header, ``Notes`` is kept as an
+    extra section). Overwrites any existing record for the month. Returns the path and the
+    problems ``check`` finds. Refuses a form that names a run other than the bundle's, so a
+    review of one candidate can never approve another."""
+    month = validate_month(fields.get("Month", "").strip())
+    run_id = fields.get("Run id", "").strip()
+    ids = _bundle_ids(bundle_path)
+    if bundle_path is not None and run_id != ids["run_id"]:
+        msg = (
+            f"the form reviews run {run_id} but the candidate is run {ids['run_id']}; "
+            "open the review link from the candidate you looked at"
+        )
+        raise ValueError(msg)
+    ids["run_id"] = run_id or ids["run_id"]
+    header = _render_template(settings, month, ids).split("\n## ", 1)[0].rstrip()
+    parts = [header, ""]
+    for name in REQUIRED_SECTIONS:
+        if name == "Reviewer":
+            body = f"Initials: {reviewer}\nDate: {date}"
+        else:
+            body = fields.get(name, "").strip() or FILL
+        parts += [f"## {name}", "", body, ""]
+    notes = fields.get("Notes", "").strip()
+    if notes:
+        parts += ["## Notes", "", notes, ""]
+    path = review_path(settings, month)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(parts), encoding="utf-8")
+    return path, check(path)
 
 
 def reviewed_run_id(path: Path) -> str | None:

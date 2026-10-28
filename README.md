@@ -109,19 +109,28 @@ Raw data never enters git or R2. Only derived outputs do.
 
 The owner (an economist) is the reviewer. Every candidate PR carries the validation
 reports, the estimates side by side with the last approved release, placebo results and a
-plain-language list of what changed. The steps:
+plain-language list of what changed, plus a link to a preview of the site built from the
+candidate (a Cloudflare Pages preview deployment, marked "Not yet reviewed"). The review
+works from a phone; nothing needs a shell or a Markdown editor:
 
-1. Read `REPORTS/congestion_pricing.md` on the candidate PR, "What the reviewer should
-   look at" first.
-2. Fill in `reviews/YYYY-MM.md` (every `_fill_` must go; the `review-check` workflow
-   fails the PR otherwise) and merge the PR, or reject it with
-   `roundtrip release reject --month YYYY-MM --reason "..."`, which closes the PR and
-   records the reason.
-3. Run `publish.yml` for that month. It checks the review record, then waits for approval
-   in the GitHub `release` environment (required reviewer: the owner), then records the
-   approval in `releases/index.json`, keeps the approved `estimates.json` under
-   `releases/YYYY-MM/`, builds the static site from `REPORTS/` and deploys it to Cloudflare
-   Pages.
+1. Read the preview site, or `REPORTS/congestion_pricing.md` on the candidate PR, "What
+   the reviewer should look at" first.
+2. Open the review form linked from the PR (a GitHub issue form with the month and run id
+   filled in), answer it, submit. The `review` workflow writes `reviews/YYYY-MM.md` from
+   the answers, checks it, and refuses a form whose run id is not the candidate's. On
+   approval it merges the PR and starts `publish.yml`; on rejection it records the reason
+   in `releases/index.json` and closes the PR. Only the repository owner, or logins in the
+   `REVIEWERS` repository variable, can review.
+3. Approve the deployment in the GitHub `release` environment (required reviewer: the
+   owner; one tap in the GitHub app). `publish.yml` then records the approval in
+   `releases/index.json`, keeps the approved `estimates.json` under `releases/YYYY-MM/`,
+   builds the static site from `REPORTS/` and deploys it to Cloudflare Pages. The review
+   issue gets the site URL and is closed.
+
+The same record can be written by hand instead: fill in `reviews/YYYY-MM.md` (every
+`_fill_` must go; the `review-check` workflow fails the PR otherwise), merge, run
+`publish.yml` for that month, or reject with
+`roundtrip release reject --month YYYY-MM --reason "..."`.
 
 `releases/index.json` lists every approved and rejected run with git SHA, manifest hash,
 reviewer and date, so git history shows, month by month, what was looked at and when the
@@ -166,7 +175,7 @@ src/roundtrip/
   causal/        data.py (zone-day statistics, zone groups), synth.py, comparisons.py,
                  event_study.py, run.py (estimates bundle), figures.py
   report/        build.py (REPORTS/*.md), summary.py (tables), site.py (static HTML)
-  release.py     review gate: prepare / check / approve / reject, releases/index.json
+  release.py     review gate: prepare / from-issue / check / approve / reject, releases/index.json
   cli.py         typer CLI
   models/ uplift/   phase 3
 sql/
@@ -177,14 +186,16 @@ sql/
 REPORTS/         candidate report, figures and the estimates bundle it was built from
 reviews/         TEMPLATE.md and one record per candidate month
 releases/        index.json (approved and rejected runs) and approved bundles
-tests/           synthetic month generator, simulated causal panel; 59 tests
+tests/           synthetic month generator, simulated causal panel; 60 tests
 .github/workflows/
   ci.yml           ruff, mypy --strict, pytest on every PR
   backfill.yml     process a range of months, one job per month, with profiling
-  monthly.yml      weekly: discover, process, push to R2, analyse, open candidate PR
+  monthly.yml      weekly: discover, process, push to R2, analyse, preview site, candidate PR
   analysis.yml     re-run the analyses and rebuild the report on demand
+  review.yml       turn a submitted review issue form into the record; merge, publish or reject
   review-check.yml fail a candidate PR whose review record is unfilled
   publish.yml      release-environment approval, record it, deploy the site to Pages
+.github/ISSUE_TEMPLATE/review.yml  the review form (works in a phone browser)
 ```
 
 See [METHODS.md](METHODS.md) for how the code was produced and validated, including the use
