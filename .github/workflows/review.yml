@@ -68,6 +68,7 @@ jobs:
       - name: Write and check the review record
         id: record
         run: |
+          cp REPORTS/estimates.json /tmp/candidate_estimates.json
           set +e
           uv run roundtrip release from-issue --body-file /tmp/issue_body.md \
             --reviewer "$REVIEWER" --date "${{ steps.form.outputs.date }}" \
@@ -87,7 +88,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add reviews/
-          git commit -m "review ${{ steps.form.outputs.month }}: ${{ steps.record.outputs.decision }} by @$REVIEWER (issue #$ISSUE)"
+          git commit -m "review ${{ steps.form.outputs.month }}: ${{ steps.record.outputs.decision }} by @$REVIEWER (issue #$ISSUE)" || echo "record unchanged"
           git push
 
       - name: Approve. Merge the candidate PR
@@ -117,7 +118,7 @@ jobs:
             git checkout main
             git checkout "candidate/$MONTH" -- "reviews/$MONTH.md"
           fi
-          uv run roundtrip release reject --month "$MONTH" --reason "${REASON:-rejected by reviewer}" --bundle REPORTS/estimates.json
+          uv run roundtrip release reject --month "$MONTH" --reason "${REASON:-rejected by reviewer}" --bundle /tmp/candidate_estimates.json
           git add reviews/ releases/
           git commit -m "release $MONTH: rejected by @$REVIEWER (issue #$ISSUE)"
           git push
