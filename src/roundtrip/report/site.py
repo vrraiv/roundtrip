@@ -238,7 +238,7 @@ def drift(bundle: dict[str, Any], outcome: str) -> dict[str, Any] | None:
     simplex = block["models"].get("simplex", {})
     hold = simplex.get("windows", {}).get("holdout", {})
     return {
-        "passes": any(v.get("passes") for v in verdict.values()),
+        "passes": any(v.get("passes") for v in verdict.values() if v.get("counts", True)),
         "holdout_gap_pct": hold.get("mean_gap_pct"),
         "holdout": block.get("windows", {}).get("holdout"),
         "models": verdict,

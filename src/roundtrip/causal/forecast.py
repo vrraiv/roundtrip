@@ -15,9 +15,31 @@ Two models, both trained on the same window and both using only same-day donor v
   and a ridge penalty. The penalty is chosen on the last eight weeks of the training
   window, never on held-out data.
 
-A simplex-with-intercept variant (Doudchenko and Imbens 2016) was tried and dropped: on
-mean-scaled series every series already has training mean one, so the intercept is zero
-and the weights are identical to ``simplex``.
+Two variants added for the redesign (owner, 2026-10-28), reported but not part of the
+drift verdict until adopted:
+
+- ``intercept``: non-negative weights with a free intercept and no sum-to-one constraint
+  (Doudchenko and Imbens 2016), on donor-scaled series. The intercept absorbs a level
+  difference; the weights match the variation.
+- ``sdid``: synthetic difference-in-differences (Arkhangelsky et al. 2021): simplex unit
+  weights with an intercept and a ridge penalty, plus simplex time weights over the
+  training days chosen so that the donors' time-weighted training mean matches their mean
+  over the target window. The counterfactual is anchored on the treated unit's
+  time-weighted training level, so a level shift late in training is carried forward
+  rather than averaged away.
+
+- ``anchored``: the simplex weights with an intercept equal to the mean gap over the
+  last ``ANCHOR_DAYS`` of training (a difference-in-differences on the synthetic
+  control). This is the level-break correction made explicit: a shift in the CBD's
+  level before the end of training is carried forward. With daily data and seasonal
+  donors the SDID time weights spread over the whole training window, so ``sdid``
+  behaves like ``simplex`` with an intercept; ``anchored`` is the recent-level design.
+
+A plain simplex-with-intercept on mean-scaled series was tried earlier and dropped: every
+series has training mean one, so the intercept is zero and the weights are ``simplex``.
+
+``change_point`` tests a daily series (a forecast gap, or the log share of the CBD in the
+donor pool) for a single mean shift against a constant and a straight trend.
 """
 
 from __future__ import annotations
@@ -28,12 +50,76 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from scipy.optimize import nnls
 
-from roundtrip.causal.synth import fit_weights
+from roundtrip.causal.synth import SUM_TO_ONE_PENALTY, fit_weights
 
-MODELS: tuple[str, ...] = ("simplex", "ridge")
+MODELS: tuple[str, ...] = ("simplex", "ridge", "intercept", "sdid", "anchored")
+ANCHOR_DAYS = 90
+# models whose hold-out result decides the drift verdict (the others are reported)
+VERDICT_MODELS: tuple[str, ...] = ("simplex", "ridge")
+LAMBDA_RIDGE = 1e-3
 RIDGE_ALPHAS: tuple[float, ...] = (0.01, 0.1, 1.0, 10.0, 100.0, 1000.0)
 VALIDATION_DAYS = 56
+
+
+def _nnls_intercept(a: np.ndarray, b: np.ndarray) -> tuple[np.ndarray, float]:
+    """NNLS on ``a`` with a free intercept (two columns, +1 and -1). Returns the
+    non-negative coefficients and the intercept."""
+    n, k = a.shape
+    aug = np.hstack([a, np.ones((n, 1)), -np.ones((n, 1))])
+    sol, _ = nnls(aug, b, maxiter=50 * (k + 2))
+    return sol[:k], float(sol[k] - sol[k + 1])
+
+
+def _intercept(y: np.ndarray, x: np.ndarray) -> tuple[float, np.ndarray]:
+    """Non-negative weights, free intercept, no sum constraint."""
+    w, a = _nnls_intercept(x, y)
+    return a, w
+
+
+def _sdid(
+    y_tr: np.ndarray, x_tr: np.ndarray, x_target: np.ndarray
+) -> tuple[float, np.ndarray, np.ndarray]:
+    """Synthetic difference-in-differences weights on scaled series.
+
+    Unit weights: simplex with intercept and ridge penalty zeta^2 T_pre, zeta as in
+    Arkhangelsky et al. (2021). Time weights: simplex over training days with intercept
+    and a small ridge, matching the donors' target-window mean. Returns the intercept
+    that anchors the counterfactual on the time-weighted treated level, the unit weights
+    and the time weights."""
+    t_pre, k = x_tr.shape
+    n_post = max(1, len(x_target))
+    sigma = float(np.std(np.diff(x_tr, axis=0))) or 1e-6
+    zeta = (k * n_post) ** 0.25 * sigma
+    pen = np.sqrt(SUM_TO_ONE_PENALTY * t_pre)
+    a_unit = np.vstack(
+        [
+            np.hstack([x_tr, np.ones((t_pre, 1)), -np.ones((t_pre, 1))]),
+            np.hstack([np.sqrt(zeta**2 * t_pre) * np.eye(k), np.zeros((k, 2))]),
+            np.hstack([pen * np.ones((1, k)), np.zeros((1, 2))]),
+        ]
+    )
+    b_unit = np.concatenate([y_tr, np.zeros(k), [pen]])
+    sol, _ = nnls(a_unit, b_unit, maxiter=50 * (k + 2))
+    w = sol[:k]
+    w = w / w.sum() if w.sum() > 0 else np.full(k, 1.0 / k)
+
+    xbar_post = x_target.mean(axis=0)
+    pen_t = np.sqrt(SUM_TO_ONE_PENALTY * k)
+    a_time = np.vstack(
+        [
+            np.hstack([x_tr.T, np.ones((k, 1)), -np.ones((k, 1))]),
+            np.hstack([np.sqrt(LAMBDA_RIDGE) * np.eye(t_pre), np.zeros((t_pre, 2))]),
+            np.hstack([pen_t * np.ones((1, t_pre)), np.zeros((1, 2))]),
+        ]
+    )
+    b_time = np.concatenate([xbar_post, np.zeros(t_pre), [pen_t]])
+    sol_t, _ = nnls(a_time, b_time, maxiter=50 * (t_pre + 2))
+    lam = sol_t[:t_pre]
+    lam = lam / lam.sum() if lam.sum() > 0 else np.full(t_pre, 1.0 / t_pre)
+    intercept = float(lam @ y_tr - (lam @ x_tr) @ w)
+    return intercept, w, lam
 
 
 def _ridge(y: np.ndarray, x: np.ndarray, alpha: float) -> tuple[float, np.ndarray]:
@@ -109,7 +195,10 @@ def fit_forecast(
     donors: pd.DataFrame,
     train_start: dt.date,
     train_end: dt.date,
+    target: tuple[dt.date, dt.date] | None = None,
 ) -> Forecast:
+    """``target`` is the window the forecast is for; only ``sdid`` uses it (for its time
+    weights). It defaults to everything after the training window."""
     idx = treated.index
     donors = donors.reindex(idx)
     usable = donors.notna().all(axis=1).to_numpy() & treated.notna().to_numpy()
@@ -123,14 +212,52 @@ def fit_forecast(
     x_all = donors.to_numpy(dtype=float)
     x_tr = x_all[train]
     params: dict[str, Any] = {}
+    scale_y = float(y_tr.mean())
+    scale_x = x_tr.mean(axis=0)
+    scale_x = np.where(scale_x != 0, scale_x, 1.0)
+    ys, xs = y_tr / scale_y, x_tr / scale_x
 
     if model == "simplex":
-        scale_y = float(y_tr.mean())
-        scale_x = x_tr.mean(axis=0)
-        scale_x = np.where(scale_x != 0, scale_x, 1.0)
-        ys, xs = y_tr / scale_y, x_tr / scale_x
         w = fit_weights(ys, xs)
         pred = (x_all / scale_x) @ w * scale_y
+        params["weights"] = {
+            str(c): float(v) for c, v in zip(donors.columns, w, strict=True) if v > 0.005
+        }
+    elif model == "anchored":
+        w = fit_weights(ys, xs)
+        n_late = min(ANCHOR_DAYS, len(ys))
+        a = float(np.mean(ys[-n_late:] - xs[-n_late:] @ w))
+        pred = (a + (x_all / scale_x) @ w) * scale_y
+        params["intercept_pct"] = 100 * a
+        params["anchor_days"] = n_late
+        params["weights"] = {
+            str(c): float(v) for c, v in zip(donors.columns, w, strict=True) if v > 0.005
+        }
+    elif model == "intercept":
+        a, w = _intercept(ys, xs)
+        pred = (a + (x_all / scale_x) @ w) * scale_y
+        params["intercept_pct"] = 100 * a
+        params["weight_sum"] = float(w.sum())
+        params["weights"] = {
+            str(c): float(v) for c, v in zip(donors.columns, w, strict=True) if v > 0.005
+        }
+    elif model == "sdid":
+        if target is None:
+            tmask = np.asarray(idx > pd.Timestamp(train_end)) & usable
+        else:
+            tmask = (
+                np.asarray((idx >= pd.Timestamp(target[0])) & (idx <= pd.Timestamp(target[1])))
+                & usable
+            )
+        if tmask.sum() == 0:
+            tmask = np.asarray(idx > pd.Timestamp(train_end)) & usable
+        a, w, lam = _sdid(ys, xs, x_all[tmask] / scale_x)
+        pred = (a + (x_all / scale_x) @ w) * scale_y
+        train_days = pd.DatetimeIndex(idx[train])
+        mean_pos = float(lam @ np.arange(len(lam)))
+        params["intercept_pct"] = 100 * a
+        params["lambda_effective_days"] = float(1.0 / np.sum(lam**2))
+        params["lambda_mean_day"] = train_days[round(mean_pos)].strftime("%Y-%m-%d")
         params["weights"] = {
             str(c): float(v) for c, v in zip(donors.columns, w, strict=True) if v > 0.005
         }
@@ -172,7 +299,13 @@ def placebo_gaps(
     for z in donors.columns:
         try:
             f = fit_forecast(
-                model, outcome, donors[z], donors.drop(columns=[z]), train_start, train_end
+                model,
+                outcome,
+                donors[z],
+                donors.drop(columns=[z]),
+                train_start,
+                train_end,
+                target=(start, end),
             )
         except (ValueError, np.linalg.LinAlgError):
             continue
@@ -201,7 +334,7 @@ def evaluate(
     fits: dict[str, Forecast] = {}
     hs, he = windows[placebo_window]
     for model in MODELS:
-        f = fit_forecast(model, outcome, treated, donors, train_start, train_end)
+        f = fit_forecast(model, outcome, treated, donors, train_start, train_end, target=(hs, he))
         fits[model] = f
         res: dict[str, Any] = {
             "params": f.params,
@@ -228,7 +361,8 @@ def evaluate(
 
 def drift_verdict(block: dict[str, Any], tolerance_pct: float) -> dict[str, Any]:
     """Which models stay within ``tolerance_pct`` on the hold-out year, overall and in
-    its last quarter (``holdout_late``, where drift shows)."""
+    its last quarter (``holdout_late``, where drift shows). ``counts`` marks the models
+    whose result decides the verdict; the others are reported for comparison."""
     out = {}
     for model, res in block["models"].items():
         hold = res["windows"]["holdout"]["mean_gap_pct"]
@@ -237,5 +371,66 @@ def drift_verdict(block: dict[str, Any], tolerance_pct: float) -> dict[str, Any]
             "holdout_gap_pct": hold,
             "late_holdout_gap_pct": late_mean,
             "passes": bool(abs(hold) <= tolerance_pct and abs(late_mean) <= tolerance_pct),
+            "counts": model in VERDICT_MODELS,
         }
     return out
+
+
+def verdict_passes(verdict: dict[str, Any]) -> bool:
+    """True if any model that counts stays within tolerance."""
+    return any(v.get("passes") for v in verdict.values() if v.get("counts", True))
+
+
+# --- change-point test ----------------------------------------------------------------
+
+
+def change_point(series: pd.Series, trim: float = 0.15) -> dict[str, Any]:
+    """Single mean-shift test on the weekly means of a daily series.
+
+    Compares a constant, a straight line, a step at the best-fitting week (searched with
+    ``trim`` of the weeks held back at each end) and a step plus a common trend, by BIC.
+    ``sup_f`` is the largest F statistic over candidate break weeks (Quandt), to be
+    compared with the same statistic on placebo units rather than a table."""
+    weekly = series.dropna().resample("W").mean().dropna()
+    n = len(weekly)
+    if n < 20:
+        return {"n_weeks": n}
+    y = weekly.to_numpy(dtype=float)
+    t = np.arange(n, dtype=float)
+    ssr_const = float(((y - y.mean()) ** 2).sum())
+    slope, icpt = np.polyfit(t, y, 1)
+    ssr_lin = float(((y - icpt - slope * t) ** 2).sum())
+    lo, hi = max(2, int(n * trim)), n - max(2, int(n * trim))
+    best: tuple[float, int, float, float] | None = None
+    for k in range(lo, hi):
+        m1, m2 = float(y[:k].mean()), float(y[k:].mean())
+        ssr = float(((y[:k] - m1) ** 2).sum() + ((y[k:] - m2) ** 2).sum())
+        if best is None or ssr < best[0]:
+            best = (ssr, k, m1, m2)
+    assert best is not None
+    ssr_step, k, m1, m2 = best
+    xst = np.column_stack([np.ones(n), t, (t >= k).astype(float)])
+    beta, *_ = np.linalg.lstsq(xst, y, rcond=None)
+    ssr_st = float(((y - xst @ beta) ** 2).sum())
+
+    def bic(ssr: float, p: int) -> float:
+        return float(n * np.log(max(ssr, 1e-12) / n) + p * np.log(n))
+
+    bics = {
+        "constant": bic(ssr_const, 1),
+        "linear": bic(ssr_lin, 2),
+        "step": bic(ssr_step, 3),
+        "step_and_trend": bic(ssr_st, 4),
+    }
+    return {
+        "n_weeks": n,
+        "break_week": (weekly.index[k] - pd.Timedelta(days=6)).strftime("%Y-%m-%d"),
+        "mean_before": m1,
+        "mean_after": m2,
+        "shift": m2 - m1,
+        "sup_f": float((ssr_const - ssr_step) / (ssr_step / (n - 2))),
+        "slope_per_month": float(slope * 52 / 12),
+        "step_and_trend_slope_per_month": float(beta[1] * 52 / 12),
+        "bic": bics,
+        "preferred": min(bics, key=lambda m: bics[m]),
+    }
