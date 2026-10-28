@@ -230,9 +230,34 @@ def _not_yet(name: str, phase: int) -> None:
 
 
 @app.command("run-causal")
-def run_causal() -> None:
-    """Congestion-pricing event study, synthetic control, placebos, HTE (phase 2)."""
-    _not_yet("run-causal", 2)
+def run_causal_cmd(
+    out: Annotated[
+        Path | None,
+        typer.Option("--out", help="Output directory (default data/derived/estimates/<run_id>)."),
+    ] = None,
+    quick: Annotated[
+        bool, typer.Option("--quick", help="Fewer placebo draws and bootstrap replications.")
+    ] = False,
+) -> None:
+    """Synthetic control, the three comparisons, event studies and placebos.
+
+    Reads every panel month under data/derived (run ``sync --prefix panel/`` first) and
+    writes an estimates bundle plus figures.
+    """
+    from roundtrip.causal.run import run_causal
+
+    path = run_causal(_settings(), out_dir=out, quick=quick)
+    typer.echo(str(path))
+
+
+@app.command("estimates-summary")
+def estimates_summary(
+    path: Annotated[Path, typer.Argument(help="Path to an estimates.json bundle.")],
+) -> None:
+    """Print Markdown tables summarising an estimates bundle."""
+    from roundtrip.report.summary import bundle_summary, load_bundle
+
+    typer.echo(bundle_summary(load_bundle(path)))
 
 
 @app.command()

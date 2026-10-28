@@ -42,6 +42,53 @@ CBD_ZONES: tuple[int, ...] = (
 # causal panel is an owner decision; the panel keeps them and flags them.
 AIRPORT_ZONES: tuple[int, ...] = (1, 132, 138)
 
+# Control-group zone lists for the event study (brief section 6a) and the synthetic-control
+# donor pool (owner, 2026-10-27). Zone ids and names are from the TLC taxi zone lookup.
+#
+# "Manhattan north of 60th" is taken as every Manhattan zone outside the CBD except parks and
+# islands with negligible pickups (computed from the lookup at run time, minus this list).
+MANHATTAN_EXCLUDED_ZONES: tuple[int, ...] = (
+    43,  # Central Park
+    103,
+    104,
+    105,  # Governor's / Ellis / Liberty Island
+    120,  # Highbridge Park
+    128,  # Inwood Hill Park
+    194,  # Randalls Island
+)
+# Inner Brooklyn and Queens zones along the East River, facing the CBD.
+INNER_BK_QUEENS_ZONES: tuple[int, ...] = (
+    # Brooklyn
+    25,  # Boerum Hill
+    33,  # Brooklyn Heights
+    34,  # Brooklyn Navy Yard
+    40,  # Carroll Gardens
+    49,  # Clinton Hill
+    52,  # Cobble Hill
+    54,  # Columbia Street
+    65,  # Downtown Brooklyn/MetroTech
+    66,  # DUMBO/Vinegar Hill
+    80,  # East Williamsburg
+    97,  # Fort Greene
+    106,  # Gowanus
+    112,  # Greenpoint
+    181,  # Park Slope
+    189,  # Prospect Heights
+    195,  # Red Hook
+    217,  # South Williamsburg
+    255,  # Williamsburg (North Side)
+    256,  # Williamsburg (South Side)
+    # Queens
+    7,  # Astoria
+    145,  # Long Island City/Hunters Point
+    146,  # Long Island City/Queens Plaza
+    179,  # Old Astoria
+    193,  # Queensbridge/Ravenswood
+    223,  # Steinway
+    226,  # Sunnyside
+    260,  # Woodside
+)
+
 # HVFHS licence numbers from the TLC data dictionary (March 2025 edition).
 BASE_CODES: dict[str, str] = {
     "HV0002": "Juno",
@@ -149,7 +196,21 @@ class Settings(BaseSettings):
     exclude_airport_trips: bool = False
     cbd_zones: tuple[int, ...] = CBD_ZONES
     airport_zones: tuple[int, ...] = AIRPORT_ZONES
+    manhattan_excluded_zones: tuple[int, ...] = MANHATTAN_EXCLUDED_ZONES
+    inner_bk_queens_zones: tuple[int, ...] = INNER_BK_QUEENS_ZONES
     base_codes: dict[str, str] = Field(default_factory=lambda: dict(BASE_CODES))
+    # Event-study window in weeks relative to the treatment week; ends are binned.
+    event_weeks_before: int = 30
+    event_weeks_after: int = 30
+    # Fake treatment dates for the placebo-in-time event studies (all before the
+    # announcement, so the "post" periods are untreated).
+    placebo_dates: tuple[dt.date, ...] = (
+        dt.date(2024, 3, 3),
+        dt.date(2024, 6, 2),
+        dt.date(2024, 9, 1),
+    )
+    bootstrap_reps: int = 1000
+    bootstrap_seed: int = 20250105
 
     # --- compute ------------------------------------------------------------------------
     duckdb_memory_limit: str = "10GB"
@@ -195,6 +256,31 @@ class Settings(BaseSettings):
     @property
     def zone_lookup_path(self) -> Path:
         return self.derived_dir / "zones" / "taxi_zone_lookup.csv"
+
+    @property
+    def panel_glob(self) -> str:
+        return str(self.derived_dir / "panel" / "zone_hour" / "month=*" / "data.parquet")
+
+    @property
+    def estimates_dir(self) -> Path:
+        return self.derived_dir / "estimates"
+
+    @property
+    def reports_dir(self) -> Path:
+        """Markdown reports and figures committed to the repo (``REPORTS/``)."""
+        return self.repo_dir / "REPORTS"
+
+    @property
+    def reviews_dir(self) -> Path:
+        return self.repo_dir / "reviews"
+
+    @property
+    def releases_dir(self) -> Path:
+        return self.repo_dir / "releases"
+
+    @property
+    def repo_dir(self) -> Path:
+        return self.sql_dir.parent
 
     def panel_path(self, month: str) -> Path:
         return self.derived_dir / "panel" / "zone_hour" / f"month={month}" / "data.parquet"
