@@ -4,8 +4,15 @@ name: backfill
 # sequentially so each month sees the manifest written by the previous one.
 # Run it first for a single month and read the "Profile" section of the job
 # summary (peak RSS, wall time) before launching the full range.
+#
+# Two ways to start it:
+#   - workflow_dispatch from the default branch (inputs below), or
+#   - push a branch named trial/<start>..<end> (e.g. trial/2024-12..2025-01) to run the
+#     code on that branch against real data before it is merged.
 
 on:
+  push:
+    branches: ["trial/**"]
   workflow_dispatch:
     inputs:
       start_month:
@@ -44,9 +51,14 @@ jobs:
       - run: uv sync --frozen
       - id: months
         run: |
-          END="${{ inputs.end_month }}"
-          [ -z "$END" ] && END="${{ inputs.start_month }}"
-          MONTHS=$(uv run python -c "import json; from roundtrip.config import month_range; print(json.dumps(month_range('${{ inputs.start_month }}', '$END')))")
+          if [ "${{ github.event_name }}" = "push" ]; then
+            SPEC="${GITHUB_REF_NAME#trial/}"
+            START="${SPEC%%..*}"; END="${SPEC##*..}"
+          else
+            START="${{ inputs.start_month }}"; END="${{ inputs.end_month }}"
+          fi
+          [ -z "$END" ] && END="$START"
+          MONTHS=$(uv run python -c "import json; from roundtrip.config import month_range; print(json.dumps(month_range('$START', '$END')))")
           echo "months=$MONTHS" >> "$GITHUB_OUTPUT"
           echo "Months: $MONTHS"
 
