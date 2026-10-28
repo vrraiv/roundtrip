@@ -68,7 +68,7 @@ def synth_plot(fit: SynthFit, test_fit: SynthFit | None, settings: Settings, pat
     plt.close(fig)
 
 
-OOS_COLORS = {"simplex": "#d1495b", "simplex_intercept": "#2e86ab", "ridge": "#6a994e"}
+OOS_COLORS = {"simplex": "#d1495b", "ridge": "#6a994e"}
 
 
 def oos_plot(fits: dict[str, Any], settings: Settings, path: Path) -> None:

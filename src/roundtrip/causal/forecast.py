@@ -7,16 +7,17 @@ fits well in-sample. The test: train each counterfactual model on 1 January to
 stay on the actual CBD series there. Any systematic gap in that year is drift, and the
 same drift contaminates the anticipation and post estimates.
 
-Three models, all trained on the same window and all using only same-day donor values:
+Two models, both trained on the same window and both using only same-day donor values:
 
 - ``simplex``: the current design. Non-negative weights summing to one on mean-scaled
   series.
-- ``simplex_intercept``: the same weights fitted on demeaned series, with the CBD's
-  training-window mean added back. This allows a constant level difference between the
-  CBD and its synthetic version (Doudchenko and Imbens 2016).
 - ``ridge``: unconstrained linear regression of the CBD on all donors with an intercept
   and a ridge penalty. The penalty is chosen on the last eight weeks of the training
   window, never on held-out data.
+
+A simplex-with-intercept variant (Doudchenko and Imbens 2016) was tried and dropped: on
+mean-scaled series every series already has training mean one, so the intercept is zero
+and the weights are identical to ``simplex``.
 """
 
 from __future__ import annotations
@@ -30,7 +31,7 @@ import pandas as pd
 
 from roundtrip.causal.synth import fit_weights
 
-MODELS: tuple[str, ...] = ("simplex", "simplex_intercept", "ridge")
+MODELS: tuple[str, ...] = ("simplex", "ridge")
 RIDGE_ALPHAS: tuple[float, ...] = (0.01, 0.1, 1.0, 10.0, 100.0, 1000.0)
 VALIDATION_DAYS = 56
 
@@ -104,17 +105,13 @@ def fit_forecast(
     x_tr = x_all[train]
     params: dict[str, Any] = {}
 
-    if model in ("simplex", "simplex_intercept"):
+    if model == "simplex":
         scale_y = float(y_tr.mean())
         scale_x = x_tr.mean(axis=0)
         scale_x = np.where(scale_x != 0, scale_x, 1.0)
         ys, xs = y_tr / scale_y, x_tr / scale_x
-        if model == "simplex":
-            w = fit_weights(ys, xs)
-            pred = (x_all / scale_x) @ w * scale_y
-        else:
-            w = fit_weights(ys - ys.mean(), xs - xs.mean(axis=0))
-            pred = ((x_all / scale_x - xs.mean(axis=0)) @ w + ys.mean()) * scale_y
+        w = fit_weights(ys, xs)
+        pred = (x_all / scale_x) @ w * scale_y
         params["weights"] = {
             str(c): float(v) for c, v in zip(donors.columns, w, strict=True) if v > 0.005
         }

@@ -129,7 +129,6 @@ def _synth_diag(bundle: dict[str, Any]) -> str:
 
 OOS_LABELS = {
     "simplex": "simplex weights (current design)",
-    "simplex_intercept": "simplex weights with intercept",
     "ridge": "ridge regression",
 }
 
@@ -175,10 +174,20 @@ def _oos_section(bundle: dict[str, Any]) -> str:
         if ms:
             lines.append(f"- **{label}**: within tolerance out of sample: {', '.join(ms)}.")
         else:
+            r = oos[o]["models"]["simplex"]["windows"]
+            late = r["holdout_late"]["mean_gap_pct"]
+            post = r.get("post", {}).get("mean_gap_pct")
+            net = (
+                ""
+                if post is None
+                else f" If the drift simply continued at its last-quarter rate of {_fmt(late)}%, "
+                f"the post gap of {_fmt(post)}% would be about {_fmt(post - late)}% net of it; "
+                "that is an assumption, not an estimate."
+            )
             lines.append(
                 f"- **{label}**: no model stays within tolerance over the untreated year. "
                 "Its anticipation and post gaps cannot be separated from drift with these "
-                "donors."
+                "donors." + net
             )
     figs = "\n\n".join(
         f"![Out-of-sample forecasts: {OUTCOME_LABELS.get(o, o)}](figures/synth_oos_{o}.png)"
