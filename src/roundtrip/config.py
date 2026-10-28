@@ -136,6 +136,17 @@ class Settings(BaseSettings):
     anticipation_end: dt.date = dt.date(2025, 1, 5)  # exclusive; equals treatment_date
     placebo_window_start: dt.date = dt.date(2023, 11, 14)
     placebo_window_end: dt.date = dt.date(2024, 1, 5)  # exclusive
+    # Clean pre-event window for the before/after comparison (owner, 2026-10-27).
+    pre_window_start: dt.date = dt.date(2024, 6, 1)
+    # Synthetic-control design (owner, 2026-10-27): daily units; outcomes trip counts, mean
+    # wait, mean base fare; donors = non-CBD Manhattan plus inner Brooklyn/Queens zones on
+    # the East River, airports excluded; simplex weights fitted before the announcement.
+    synth_outcomes: tuple[str, ...] = ("n_trips", "mean_wait_seconds", "mean_base_fare")
+    # Main event study reports three comparisons (owner, 2026-10-27): the same weeks one year
+    # earlier, the synthetic control, and the pre-event window above.
+    comparison_designs: tuple[str, ...] = ("prior_year", "synthetic_control", "pre_window")
+    # OWNER DECISION still open: whether to drop airport trips. Default keeps them.
+    exclude_airport_trips: bool = False
     cbd_zones: tuple[int, ...] = CBD_ZONES
     airport_zones: tuple[int, ...] = AIRPORT_ZONES
     base_codes: dict[str, str] = Field(default_factory=lambda: dict(BASE_CODES))
