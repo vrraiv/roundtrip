@@ -1,1 +1,17 @@
-{"approved": []}
+{
+  "approved": [
+    {
+      "month": "2026-08",
+      "status": "approve with notes",
+      "run_id": "20261028T032834Z",
+      "git_sha": "32ec535717b7",
+      "manifest_hash": "d37e7e914398",
+      "data_end": "2026-08-31",
+      "reviewer": "vrraiv",
+      "date": "2026-10-28",
+      "recorded_at": "2026-10-28T13:32:29+00:00",
+      "notes": "Drift - the CBD was losing trip share throughout 2024, which is complicating the event study design and the synthetic control."
+    }
+  ],
+  "rejected": []
+}
