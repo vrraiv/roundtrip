@@ -1,0 +1,84 @@
+name: analysis
+
+# Run the phase 2 analyses (synthetic control, three comparisons, event studies,
+# placebos) on every panel month in R2, build the candidate report and the review
+# record, and keep them as a workflow artifact. The monthly workflow runs the same
+# steps after new months land; this one exists for development and re-runs.
+#
+# Start it with workflow_dispatch from the default branch, or push a branch named
+# analysis/<anything> to run the code on that branch against real data.
+
+on:
+  push:
+    branches: ["analysis/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+  R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+  R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+  R2_BUCKET: ${{ secrets.R2_BUCKET || secrets.R2_BUCKET_NAME }}
+
+jobs:
+  causal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --frozen
+
+      - name: Pull panel, zones, validation reports and manifest from R2
+        run: |
+          uv run roundtrip sync --prefix manifest.json
+          uv run roundtrip sync --prefix zones/
+          uv run roundtrip sync --prefix validation/
+          uv run roundtrip sync --prefix panel/
+          du -sh data/derived/panel
+          ls data/derived/panel/zone_hour | wc -l
+
+      - name: Run causal analyses
+        id: causal
+        run: |
+          /usr/bin/time -v uv run roundtrip run-causal --out data/derived/estimates/latest 2> time.log
+          STATUS=$?
+          grep -E "Maximum resident set size|Elapsed \(wall clock\)" time.log || true
+          exit $STATUS
+
+      - name: Build report and review record
+        id: report
+        run: |
+          uv run roundtrip report --bundle data/derived/estimates/latest/estimates.json
+          MONTH=$(uv run python -c "import json; print(json.load(open('REPORTS/estimates.json'))['months'][-1])")
+          echo "month=$MONTH" >> "$GITHUB_OUTPUT"
+          uv run roundtrip release prepare --month "$MONTH" --bundle REPORTS/estimates.json --force
+          ls -la REPORTS REPORTS/figures reviews
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Analysis"
+            echo
+            echo '```'
+            grep -E "Maximum resident set size|Elapsed \(wall clock\)" time.log || true
+            echo '```'
+            uv run roundtrip estimates-summary data/derived/estimates/latest/estimates.json 2>/dev/null || echo "_no estimates bundle_"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: candidate
+          path: |
+            REPORTS/
+            reviews/${{ steps.report.outputs.month }}.md
+            data/derived/estimates/latest/
+          retention-days: 90
+          if-no-files-found: warn

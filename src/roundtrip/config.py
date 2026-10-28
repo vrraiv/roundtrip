@@ -42,6 +42,53 @@ CBD_ZONES: tuple[int, ...] = (
 # causal panel is an owner decision; the panel keeps them and flags them.
 AIRPORT_ZONES: tuple[int, ...] = (1, 132, 138)
 
+# Control-group zone lists for the event study (brief section 6a) and the synthetic-control
+# donor pool (owner, 2026-10-27). Zone ids and names are from the TLC taxi zone lookup.
+#
+# "Manhattan north of 60th" is taken as every Manhattan zone outside the CBD except parks and
+# islands with negligible pickups (computed from the lookup at run time, minus this list).
+MANHATTAN_EXCLUDED_ZONES: tuple[int, ...] = (
+    43,  # Central Park
+    103,
+    104,
+    105,  # Governor's / Ellis / Liberty Island
+    120,  # Highbridge Park
+    128,  # Inwood Hill Park
+    194,  # Randalls Island
+)
+# Inner Brooklyn and Queens zones along the East River, facing the CBD.
+INNER_BK_QUEENS_ZONES: tuple[int, ...] = (
+    # Brooklyn
+    25,  # Boerum Hill
+    33,  # Brooklyn Heights
+    34,  # Brooklyn Navy Yard
+    40,  # Carroll Gardens
+    49,  # Clinton Hill
+    52,  # Cobble Hill
+    54,  # Columbia Street
+    65,  # Downtown Brooklyn/MetroTech
+    66,  # DUMBO/Vinegar Hill
+    80,  # East Williamsburg
+    97,  # Fort Greene
+    106,  # Gowanus
+    112,  # Greenpoint
+    181,  # Park Slope
+    189,  # Prospect Heights
+    195,  # Red Hook
+    217,  # South Williamsburg
+    255,  # Williamsburg (North Side)
+    256,  # Williamsburg (South Side)
+    # Queens
+    7,  # Astoria
+    145,  # Long Island City/Hunters Point
+    146,  # Long Island City/Queens Plaza
+    179,  # Old Astoria
+    193,  # Queensbridge/Ravenswood
+    223,  # Steinway
+    226,  # Sunnyside
+    260,  # Woodside
+)
+
 # HVFHS licence numbers from the TLC data dictionary (March 2025 edition).
 BASE_CODES: dict[str, str] = {
     "HV0002": "Juno",
@@ -100,6 +147,9 @@ class ValidationThresholds(BaseModel):
     pay_p999_min: float = 80.0
     pay_p999_max: float = 500.0
     max_flagged_share: float = 0.02  # hard fail if more than this share of trips is flagged
+    # Pickup-before-request is a steady ~1.2% of HVFHV trips (reporting quirk; excluded from
+    # wait-time means). Owner decision 2026-10-27: keep the check hard, limit 5%.
+    max_pickup_before_request_share: float = 0.05
     max_unknown_zone_share: float = 0.001
     max_unknown_base_share: float = 0.001
 
@@ -125,10 +175,45 @@ class Settings(BaseSettings):
 
     # --- study design -------------------------------------------------------------------
     treatment_date: dt.date = dt.date(2025, 1, 5)
-    anticipation_start: dt.date = dt.date(2024, 12, 1)  # OWNER DECISION: handling of Dec-24
+    # Anticipation window (owner design, 2026-10-27): from the 14 Nov 2024 announcement of
+    # the $9 toll to the 5 Jan 2025 start. Handled with a synthetic-control forecast of CBD
+    # outcomes over the window; the same calendar window one year earlier, when nothing
+    # happened, is the placebo used to test the forecast design.
+    anticipation_start: dt.date = dt.date(2024, 11, 14)
+    anticipation_end: dt.date = dt.date(2025, 1, 5)  # exclusive; equals treatment_date
+    placebo_window_start: dt.date = dt.date(2023, 11, 14)
+    placebo_window_end: dt.date = dt.date(2024, 1, 5)  # exclusive
+    # Clean pre-event window for the before/after comparison (owner, 2026-10-27).
+    pre_window_start: dt.date = dt.date(2024, 6, 1)
+    # Synthetic-control design (owner, 2026-10-27): daily units; outcomes trip counts, mean
+    # wait, mean base fare; donors = non-CBD Manhattan plus inner Brooklyn/Queens zones on
+    # the East River, airports excluded; simplex weights fitted before the announcement.
+    synth_outcomes: tuple[str, ...] = ("n_trips", "mean_wait_seconds", "mean_base_fare")
+    # Main event study reports three comparisons (owner, 2026-10-27): the same weeks one year
+    # earlier, the synthetic control, and the pre-event window above.
+    comparison_designs: tuple[str, ...] = ("prior_year", "synthetic_control", "pre_window")
+    # OWNER DECISION still open: whether to drop airport trips. Default keeps them.
+    exclude_airport_trips: bool = False
     cbd_zones: tuple[int, ...] = CBD_ZONES
     airport_zones: tuple[int, ...] = AIRPORT_ZONES
+    manhattan_excluded_zones: tuple[int, ...] = MANHATTAN_EXCLUDED_ZONES
+    inner_bk_queens_zones: tuple[int, ...] = INNER_BK_QUEENS_ZONES
     base_codes: dict[str, str] = Field(default_factory=lambda: dict(BASE_CODES))
+    # Event-study window in weeks relative to the treatment week; ends are binned.
+    event_weeks_before: int = 30
+    event_weeks_after: int = 30
+    # Fake treatment dates for the placebo-in-time event studies (all before the
+    # announcement, so the "post" periods are untreated).
+    placebo_dates: tuple[dt.date, ...] = (
+        dt.date(2024, 3, 3),
+        dt.date(2024, 6, 2),
+        dt.date(2024, 9, 1),
+    )
+    bootstrap_reps: int = 1000
+    # The comparisons evaluate the first year after treatment, so the prior-year design
+    # never compares a treated day with another treated day.
+    post_window_days: int = 364
+    bootstrap_seed: int = 20250105
 
     # --- compute ------------------------------------------------------------------------
     duckdb_memory_limit: str = "10GB"
@@ -174,6 +259,31 @@ class Settings(BaseSettings):
     @property
     def zone_lookup_path(self) -> Path:
         return self.derived_dir / "zones" / "taxi_zone_lookup.csv"
+
+    @property
+    def panel_glob(self) -> str:
+        return str(self.derived_dir / "panel" / "zone_hour" / "month=*" / "data.parquet")
+
+    @property
+    def estimates_dir(self) -> Path:
+        return self.derived_dir / "estimates"
+
+    @property
+    def reports_dir(self) -> Path:
+        """Markdown reports and figures committed to the repo (``REPORTS/``)."""
+        return self.repo_dir / "REPORTS"
+
+    @property
+    def reviews_dir(self) -> Path:
+        return self.repo_dir / "reviews"
+
+    @property
+    def releases_dir(self) -> Path:
+        return self.repo_dir / "releases"
+
+    @property
+    def repo_dir(self) -> Path:
+        return self.sql_dir.parent
 
     def panel_path(self, month: str) -> Path:
         return self.derived_dir / "panel" / "zone_hour" / f"month={month}" / "data.parquet"

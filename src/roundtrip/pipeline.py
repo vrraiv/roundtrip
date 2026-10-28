@@ -106,7 +106,9 @@ def fetch_month(
         raise FileNotFoundError(msg)
 
     record = manifest.months.get(month)
-    if record is not None and not force:
+    if record is not None and record.validation_status != "pass" and not force:
+        log.info("%s: previous attempt ended %s; retrying", month, record.validation_status)
+    elif record is not None and not force:
         if tlc.is_revision(record, remote):
             log.warning(
                 "%s: TLC revision detected (size %s -> %s). Rerun with --force to reprocess.",

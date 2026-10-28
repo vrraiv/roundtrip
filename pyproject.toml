@@ -15,6 +15,10 @@ dependencies = [
     "boto3>=1.35",
     "pyarrow>=17",
     "pandas>=2.2",
+    "scipy>=1.14",
+    "pyfixest>=0.30",
+    "matplotlib>=3.9",
+    "markdown>=3.7",
 ]
 
 [project.scripts]
@@ -30,6 +34,8 @@ dev = [
     "boto3-stubs[s3]>=1.35",
     "pandas-stubs>=2.2",
     "pyarrow-stubs>=17",
+    "types-markdown>=3.10.2.20261007",
+    "scipy-stubs>=1.18.1.1",
 ]
 
 [build-system]
@@ -46,7 +52,8 @@ src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "N", "W", "SIM", "RUF", "PL", "ARG"]
-ignore = ["PLR0913", "PLR2004", "PLR0912", "PLR0915", "PLC0415"]
+ignore = ["PLR0913", "PLR2004", "PLR0912", "PLR0915",
+    "PLR0917", "PLC0415"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["PLR2004", "ARG001"]

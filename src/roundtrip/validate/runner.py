@@ -41,6 +41,7 @@ def _sql_params(settings: Settings, month: str) -> dict[str, str | int | float]:
         "max_wait_seconds": v.max_wait_seconds,
         "max_trip_hours": v.max_trip_hours,
         "max_flagged_share": v.max_flagged_share,
+        "max_pickup_before_request_share": v.max_pickup_before_request_share,
         "fare_p999_min": v.fare_p999_min,
         "fare_p999_max": v.fare_p999_max,
         "pay_p999_min": v.pay_p999_min,
@@ -131,7 +132,10 @@ def null_rate_checks(
     month: str,
     rates: dict[str, float],
 ) -> list[CheckResult]:
-    """Each column's null rate must lie in [min, max] of history, widened by a margin."""
+    """Compare each column's null rate with [min, max] of passed history plus a margin.
+
+    Above the band is hard (data going missing); below it is soft (data appearing).
+    """
     v = settings.validation
     history = manifest.null_rates_before(month)
     if len(history) < v.null_rate_min_history:
@@ -150,15 +154,30 @@ def null_rate_checks(
             continue
         lo = max(0.0, min(past) - v.null_rate_band_margin)
         hi = min(1.0, max(past) + v.null_rate_band_margin)
-        ok = lo <= rate <= hi
-        if not ok:
+        if rate > hi:
+            # More nulls than ever before: data loss, stop the run.
             out.append(
                 CheckResult(
                     name=f"null_rate_band:{col}",
                     severity="hard",
                     passed=False,
                     metric=rate,
-                    detail=f"null rate {rate:.4f} outside [{lo:.4f}, {hi:.4f}]",
+                    detail=f"null rate {rate:.4f} above historical band [{lo:.4f}, {hi:.4f}]",
+                ),
+            )
+        elif rate < lo:
+            # Fewer nulls than ever before: a reporting improvement (e.g. Lyft began filling
+            # on_scene_datetime in March 2025). Worth a look, not worth stopping the run.
+            out.append(
+                CheckResult(
+                    name=f"null_rate_band:{col}",
+                    severity="soft",
+                    passed=False,
+                    metric=rate,
+                    detail=(
+                        f"null rate {rate:.4f} below historical band [{lo:.4f}, {hi:.4f}]"
+                        " (reporting improvement?)"
+                    ),
                 ),
             )
     if not out:
