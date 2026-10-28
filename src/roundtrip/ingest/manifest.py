@@ -85,12 +85,13 @@ class Manifest(BaseModel):
         return month in self.months
 
     def row_counts_before(self, month: str, n: int = 12) -> list[int]:
-        """Row counts of the ``n`` processed months strictly before ``month``."""
-        prior = [m for m in self.processed_months() if m < month]
+        """Row counts of the ``n`` passed months strictly before ``month``."""
+        prior = [m for m in self.passed_months() if m < month]
         return [self.months[m].row_count for m in prior[-n:]]
 
     def null_rates_before(self, month: str, n: int = 12) -> list[dict[str, float]]:
-        prior = [m for m in self.processed_months() if m < month]
+        """Null rates of the ``n`` passed months strictly before ``month``."""
+        prior = [m for m in self.passed_months() if m < month]
         return [self.months[m].null_rates for m in prior[-n:]]
 
 

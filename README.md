@@ -38,8 +38,10 @@ Things the reviewer should know from these two months:
   affected trips are excluded from wait-time means. Owner decision: the check stays hard
   with its own 5% limit (`max_pickup_before_request_share`), so only a real break stops
   the run.
-- `on_scene_datetime` and `originating_base_num` are null for 24% of trips (Lyft does not
-  report them). The null-rate bands will encode this once three months of history exist.
+- `on_scene_datetime` and `originating_base_num` are null for about 25% of trips through
+  February 2025 (Lyft did not report them). From March 2025 `on_scene_datetime` is filled
+  for all but 4.5% of trips. The null-rate check treats a fall like this as a soft warning
+  and a rise as a hard failure.
 - In January 2025 the mean `cbd_congestion_fee` on pickups in the 38 CBD zones is $1.48
   (the per-trip charge is $1.50) versus $0.14 elsewhere, which is consistent with the MTA
   zone list used in `config.py`.
@@ -143,15 +145,14 @@ of a coding agent.
 
 Settled: data start month 2023-01; MIT licence; pickup-before-request check hard at 5%;
 anticipation window 14 Nov 2024 to 4 Jan 2025 handled by a synthetic-control forecast
-tested on the same window a year earlier;
+tested on the same window a year earlier; three comparisons for the event study (prior
+year, synthetic control, June to November 2024 pre-window); the fare measure is the base
+passenger fare, which excludes the congestion fee (details in METHODS.md);
 R2 bucket and repo secrets in place
 (the bucket secret may be named `R2_BUCKET` or `R2_BUCKET_NAME`, the workflows accept
 either).
 
 Still open:
 
-- Control group for the congestion-pricing event study itself, airport trips, and the fare
-  measure given surcharge pass-through.
-- Details of the anticipation-window synthetic control (outcomes, unit, donor pool,
-  estimator); the design is set, see METHODS.md.
+- Whether to drop airport trips (default keeps them; `ROUNDTRIP_EXCLUDE_AIRPORT_TRIPS`).
 - Benchmark estimates to compare against.

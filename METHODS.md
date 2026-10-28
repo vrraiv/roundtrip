@@ -38,8 +38,19 @@ How agent-written code is validated:
   then treats the window as its own period rather than folding it into the pre-period.
   The design is tested first on the same calendar window one year earlier (14 Nov 2023 to
   4 Jan 2024), when no policy change occurred: a good design forecasts that window with no
-  systematic gap. Still to specify: outcome variables, daily versus zone-hour units, the
-  donor pool (all non-CBD zones or Manhattan-only), and the estimator variant.
+  systematic gap. Specified by the owner: outcomes are daily trip counts, mean wait time
+  and mean base fare; units are daily zone totals; the donor pool is non-CBD Manhattan plus
+  the inner Brooklyn and Queens zones on the East River, airports excluded; the estimator
+  is standard synthetic control with non-negative weights summing to one, fitted from
+  January 2023 to 13 November 2024, with placebo-in-space inference.
+- **Three comparisons for the main event study** (owner, 2026-10-27), all reported: the
+  same weeks one year earlier; the synthetic control above; and the clean pre-event window
+  from June 2024 to 13 November 2024. The brief's zone-based control groups (Manhattan north
+  of 60th; inner Brooklyn/Queens) remain as the control units inside the fixed-effects
+  event study.
+- **Fare measure.** Outcomes use TLC `base_passenger_fare`, which excludes tolls, taxes,
+  fees and the CBD congestion fee, so surcharge pass-through does not enter the fare
+  outcome. The fee itself is reported separately.
 
 ## Data handling choices (phase 1)
 
@@ -54,6 +65,11 @@ How agent-written code is validated:
   trips is a hard validation check, so silent degradation is not possible.
 - Pickups outside the file's month are dropped from the panel (not from validation) so
   that months do not overlap.
+- Null-rate bands are built from months that passed validation. A null rate above the
+  band is a hard failure (data going missing); below the band is a soft warning, because
+  that is what a reporting improvement looks like. Lyft began filling `on_scene_datetime`
+  in March 2025, taking its null rate from about 25% to under 5%; the backfill stopped on
+  that month until this rule was introduced.
 - Schema checks compare type families (integer, float, timestamp, string) rather than exact
   widths, because TLC has said it may standardise parquet types across years. Exact types
   are recorded in the manifest so drift is visible.

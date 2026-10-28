@@ -134,6 +134,28 @@ def test_null_rate_band_flags_new_nulls(settings: Settings, tmp_path: Path) -> N
     assert report.status == "fail"
 
 
+def test_null_rate_band_below_is_soft(settings: Settings, tmp_path: Path) -> None:
+    # Fewer nulls than history (a reporting improvement) warns but does not fail.
+    p = make_month_parquet(tmp_path / "m.parquet", "2024-12", null_on_scene_share=0.0)
+    manifest = Manifest()
+    for m in ("2024-09", "2024-10", "2024-11"):
+        manifest.months[m] = _record(m, 20_000, {"on_scene_datetime": 0.25, "driver_pay": 0.0})
+    report = _validate(settings, "2024-12", p, manifest)
+    check = {c.name: c for c in report.checks}["null_rate_band:on_scene_datetime"]
+    assert check.severity == "soft" and not check.passed
+    assert report.status == "warn"
+
+
+def test_history_bands_ignore_failed_months() -> None:
+    manifest = Manifest()
+    manifest.months["2024-10"] = _record("2024-10", 20_000, {"x": 0.1})
+    bad = _record("2024-11", 5, {"x": 0.9})
+    bad.validation_status = "fail"
+    manifest.months["2024-11"] = bad
+    assert manifest.row_counts_before("2024-12") == [20_000]
+    assert manifest.null_rates_before("2024-12") == [{"x": 0.1}]
+
+
 def test_report_markdown_lists_every_check(settings: Settings, tmp_path: Path) -> None:
     p = make_month_parquet(tmp_path / "m.parquet", "2024-12", n=2_000)
     report = _validate(settings, "2024-12", p)
