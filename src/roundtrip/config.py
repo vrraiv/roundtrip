@@ -221,6 +221,9 @@ class Settings(BaseSettings):
     # A model "passes" if its mean gap over the hold-out year, and over its last quarter,
     # is within this many percent (about the size of the 2023 test-window gaps).
     oos_drift_tolerance_pct: float = 3.0
+    # Prior-year design run on an untreated window (Jan to 13 Nov 2024 vs 2023): it should
+    # find nothing if the design is sound.
+    prior_year_placebo_start: dt.date = dt.date(2024, 1, 5)
     bootstrap_seed: int = 20250105
 
     # --- compute ------------------------------------------------------------------------

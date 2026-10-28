@@ -245,6 +245,8 @@ def test_run_causal_end_to_end(sim_settings: Settings, tmp_path: Path) -> None:
     assert (out / "figures" / "event_study_manhattan_north.png").exists()
     assert (out / "figures" / "comparisons.png").exists()
     assert set(bundle["synth_oos"]) == set(sim_settings.synth_outcomes)
+    py = [e for e in bundle["prior_year_placebo"] if e["outcome"] == "n_trips" and e["adjusted"]]
+    assert abs(py[0]["effect_pct"]) < 2
     assert (out / "figures" / "synth_oos_n_trips.png").exists()
 
 
@@ -304,4 +306,7 @@ def test_oos_forecast_detects_drift(sim_settings: Settings) -> None:
     verdict = forecast.drift_verdict(block, sim_settings.oos_drift_tolerance_pct)
     assert not verdict["simplex"]["passes"]
     assert verdict["simplex"]["late_holdout_gap_pct"] < -7
+    tr = block["models"]["simplex"]["trend"]
+    assert tr["slope_pct_per_month"] < -0.5
+    assert tr["extrapolated"]["post"] < verdict["simplex"]["late_holdout_gap_pct"]
     assert block["models"]["simplex"]["placebo"]["rank_p"] < 0.2

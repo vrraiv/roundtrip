@@ -174,26 +174,53 @@ def _oos_section(bundle: dict[str, Any]) -> str:
         if ms:
             lines.append(f"- **{label}**: within tolerance out of sample: {', '.join(ms)}.")
         else:
-            r = oos[o]["models"]["simplex"]["windows"]
-            late = r["holdout_late"]["mean_gap_pct"]
-            post = r.get("post", {}).get("mean_gap_pct")
-            net = (
-                ""
-                if post is None
-                else f" If the drift simply continued at its last-quarter rate of {_fmt(late)}%, "
-                f"the post gap of {_fmt(post)}% would be about {_fmt(post - late)}% net of it; "
-                "that is an assumption, not an estimate."
-            )
+            r = oos[o]["models"]["simplex"]
+            late = r["windows"]["holdout_late"]["mean_gap_pct"]
+            post = r["windows"].get("post", {}).get("mean_gap_pct")
+            tr = r["trend"]
+            trend_post = tr["extrapolated"].get("post")
+            readings = ""
+            if post is not None and trend_post is not None:
+                readings = (
+                    f" How much of the post gap of {_fmt(post)}% is policy depends entirely on "
+                    "what the drift would have done, and the data cannot say. If it stayed at "
+                    f"its last-quarter level ({_fmt(late)}%), about {_fmt(post - late)}% "
+                    f"remains. If it kept its hold-out trend ({_fmt(tr['slope_pct_per_month'], 2)}"
+                    f"% a month, {_fmt(trend_post)}% by the middle of the post year), about "
+                    f"{_fmt(post - trend_post)}% remains. Both are assumptions, not estimates."
+                )
             lines.append(
                 f"- **{label}**: no model stays within tolerance over the untreated year. "
                 "Its anticipation and post gaps cannot be separated from drift with these "
-                "donors." + net
+                "donors." + readings
             )
     figs = "\n\n".join(
         f"![Out-of-sample forecasts: {OUTCOME_LABELS.get(o, o)}](figures/synth_oos_{o}.png)"
         for o in oos
     )
     return "\n".join(lines) + "\n\n" + figs
+
+
+def _prior_year_placebo(bundle: dict[str, Any]) -> str:
+    rows = [e for e in bundle.get("prior_year_placebo", []) if e["adjusted"]]
+    if not rows:
+        return "_Not available._"
+    lines = [
+        "The prior-year design applied to an untreated window: "
+        f"{rows[0]['n_days']} days from 5 January to 13 November 2024, each compared with "
+        "the same weekday in 2023 and netted against the donor pool. Nothing changed in "
+        "policy, so a sound design finds nothing; anything it finds here is also inside its "
+        "post-period estimate.",
+        "",
+        "| Outcome | 'Effect' on the untreated window | 95% interval |",
+        "|---|---|---|",
+    ]
+    for e in rows:
+        lines.append(
+            f"| {OUTCOME_LABELS.get(e['outcome'], e['outcome'])} | {_fmt(e['effect_pct'])}% | "
+            f"[{_fmt(e['lo_pct'])}, {_fmt(e['hi_pct'])}] |"
+        )
+    return "\n".join(lines)
 
 
 def _placebo_verdict(bundle: dict[str, Any]) -> str:
@@ -216,8 +243,8 @@ def _placebo_verdict(bundle: dict[str, Any]) -> str:
         "**Fake treatment dates in 2024 produce significant 'effects' for: "
         f"{items}.** For those outcomes the CBD was already diverging from the control "
         "group before the announcement, and the fixed-effects post estimate measures that "
-        "divergence as much as the policy. Read the synthetic control and prior-year "
-        "comparisons for them instead."
+        "divergence as much as the policy. Check the out-of-sample and prior-year placebo "
+        "results below before relying on any design for them."
     )
 
 
@@ -351,6 +378,10 @@ Effects on the CBD as a percent of the counterfactual, donor-adjusted, 95% inter
 Requested in the review of the 2026-08 release.
 
 {_oos_section(bundle)}
+
+### Prior-year design on an untreated year
+
+{_prior_year_placebo(bundle)}
 
 ### Pre-trends
 

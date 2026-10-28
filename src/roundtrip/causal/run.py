@@ -223,6 +223,24 @@ def run_causal(settings: Settings, out_dir: Path | None = None, quick: bool = Fa
                 )
     figures.comparison_plot(estimates, fig_dir / "comparisons.png")
 
+    # Prior-year design on an untreated window: any "effect" here is drift, not policy.
+    prior_year_placebo: list[dict[str, Any]] = []
+    py_end = settings.anticipation_start - dt.timedelta(days=1)
+    if data_start <= settings.prior_year_placebo_start - dt.timedelta(days=364):
+        for outcome in OUTCOMES:
+            if outcome == "mean_cbd_fee":
+                continue
+            for est in comparisons.prior_year(
+                cbd[outcome],
+                donors_agg[outcome],
+                outcome,
+                "untreated_2024",
+                settings.prior_year_placebo_start,
+                py_end,
+                settings,
+            ):
+                prior_year_placebo.append(est.to_dict())
+
     # --- event studies -----------------------------------------------------------------
     weeks = zone_week_panel(day, settings)
     es: dict[str, dict[str, Any]] = {}
@@ -305,6 +323,7 @@ def run_causal(settings: Settings, out_dir: Path | None = None, quick: bool = Fa
         "estimates": estimates,
         "synth": synth,
         "synth_oos": synth_oos,
+        "prior_year_placebo": prior_year_placebo,
         "event_study": es,
         "placebos": placebo_rows,
         "elapsed_seconds": round(time.perf_counter() - t0, 1),

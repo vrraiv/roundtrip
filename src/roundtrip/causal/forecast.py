@@ -83,6 +83,25 @@ class Forecast:
         return 100 * (m["a"] - m["p"]) / m["p"]
 
 
+def drift_trend(
+    f: Forecast, hold: tuple[dt.date, dt.date], windows: dict[str, tuple[dt.date, dt.date]]
+) -> dict[str, Any]:
+    """Fit a straight line to the daily hold-out gap (%) and extrapolate its mean over
+    each window. This is the gap that continuing pre-policy drift alone would produce."""
+    g = f.gap_pct.dropna()
+    t0 = pd.Timestamp(hold[0])
+    m = (g.index >= t0) & (g.index <= pd.Timestamp(hold[1]))
+    idx = pd.DatetimeIndex(g.index[m])
+    x = np.asarray((idx - t0).days, dtype=np.float64)
+    y = g[m].to_numpy(dtype=float)
+    slope, intercept = np.polyfit(x, y, 1)
+    out: dict[str, Any] = {"slope_pct_per_month": float(slope * 30.44), "extrapolated": {}}
+    for name, (s, e) in windows.items():
+        days = np.arange((pd.Timestamp(s) - t0).days, (pd.Timestamp(e) - t0).days + 1)
+        out["extrapolated"][name] = float(intercept + slope * days.mean())
+    return out
+
+
 def fit_forecast(
     model: str,
     outcome: str,
@@ -193,6 +212,7 @@ def evaluate(
                 for k, v in f.monthly_gap_pct(hs).items()
             },
         }
+        res["trend"] = drift_trend(f, (hs, he), windows)
         pg = placebo_gaps(model, outcome, donors, train_start, train_end, hs, he)
         treated_gap = res["windows"][placebo_window]["mean_gap_pct"]
         res["placebo"] = {
