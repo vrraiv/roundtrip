@@ -1,0 +1,76 @@
+name: domain
+
+# Owner-run, one-off: attach a custom domain to the Cloudflare Pages project and create the
+# DNS record in the zone (same Cloudflare account). Safe to re-run: it reports an existing
+# record that points elsewhere instead of overwriting it. Needs the CLOUDFLARE_API_TOKEN to
+# carry Zone:Read and DNS:Edit on the zone as well as Pages:Edit.
+#
+#   gh workflow run domain.yml -f domain=roundtrip.vikramrai.com
+
+on:
+  workflow_dispatch:
+    inputs:
+      domain:
+        description: "Hostname for the site"
+        required: true
+        default: "roundtrip.vikramrai.com"
+
+permissions: {}
+
+jobs:
+  attach:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CF: https://api.cloudflare.com/client/v4
+      TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      DOMAIN: ${{ inputs.domain }}
+      PROJECT: roundtrip
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --frozen
+      - name: Attach the domain and set DNS
+        run: |
+          ACCOUNT=$(uv run python -c "from roundtrip.config import get_settings; print(get_settings().r2.account_id or '')")
+          auth=(-H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json")
+          ZONE_NAME=$(echo "$DOMAIN" | awk -F. '{print $(NF-1)"."$NF}')
+
+          echo "== Pages project"
+          TARGET=$(curl -sS "${auth[@]}" "$CF/accounts/$ACCOUNT/pages/projects/$PROJECT" | jq -r '.result.subdomain // empty')
+          if [ -z "$TARGET" ]; then echo "Cannot read the Pages project; the token needs Pages:Edit."; exit 1; fi
+          echo "Pages subdomain: $TARGET"
+
+          echo "== Custom domain on the project"
+          curl -sS "${auth[@]}" -X POST "$CF/accounts/$ACCOUNT/pages/projects/$PROJECT/domains" \
+            --data "{\"name\":\"$DOMAIN\"}" | jq -c '{success, errors: [.errors[]?.message]}'
+
+          echo "== DNS"
+          ZONE=$(curl -sS "${auth[@]}" "$CF/zones?name=$ZONE_NAME" | jq -r '.result[0].id // empty')
+          if [ -z "$ZONE" ]; then
+            echo "Zone $ZONE_NAME is not visible to this token (needs Zone:Read and DNS:Edit on it)."
+            echo "Add the record by hand: CNAME $DOMAIN -> $TARGET, proxied."
+            exit 1
+          fi
+          EXISTING=$(curl -sS "${auth[@]}" "$CF/zones/$ZONE/dns_records?name=$DOMAIN" | jq -c '[.result[] | {type, content, proxied}]')
+          echo "existing records for $DOMAIN: $EXISTING"
+          if [ "$EXISTING" = "[]" ]; then
+            curl -sS "${auth[@]}" -X POST "$CF/zones/$ZONE/dns_records" \
+              --data "{\"type\":\"CNAME\",\"name\":\"$DOMAIN\",\"content\":\"$TARGET\",\"proxied\":true,\"ttl\":1}" \
+              | jq -c '{success, errors: [.errors[]?.message]}'
+            echo "created CNAME $DOMAIN -> $TARGET"
+          elif echo "$EXISTING" | grep -q "\"content\":\"$TARGET\""; then
+            echo "a record already points at $TARGET; nothing to do"
+          else
+            echo "a record for $DOMAIN already exists and points elsewhere. Not changed."
+            echo "Edit or delete it in the Cloudflare dashboard (DNS for $ZONE_NAME), then re-run."
+            exit 1
+          fi
+
+          echo "== Domain status (may take a minute to become active)"
+          curl -sS "${auth[@]}" "$CF/accounts/$ACCOUNT/pages/projects/$PROJECT/domains/$DOMAIN" \
+            | jq -c '.result | {status, certificate_authority, validation: .validation_data.status}'
