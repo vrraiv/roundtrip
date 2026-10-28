@@ -97,8 +97,13 @@ def test_validation_failure_stops_before_panel(settings: Settings, source_dir: P
     assert settings.validation_path(month, "md").exists()
     assert not settings.panel_path(month).exists()
     assert Manifest.load(settings.manifest_path).months[month].validation_status == "fail"
-    # a failed month is not silently retried as "new"
-    assert process_month(settings, month).status == "skipped"
+    # a failed month is retried on the next run (the previous attempt was not a success)
+    with pytest.raises(ValidationError):
+        process_month(settings, month)
+    # ...and processes once the source is clean, without --force
+    make_month_parquet(source_dir / "trip-data" / f"fhvhv_tripdata_{month}.parquet", month)
+    assert process_month(settings, month).status == "processed"
+    assert settings.panel_path(month).exists()
 
 
 def test_unpublished_month_raises(settings: Settings) -> None:
