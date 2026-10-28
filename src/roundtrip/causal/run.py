@@ -17,7 +17,7 @@ from typing import Any
 import pandas as pd
 
 from roundtrip import __version__
-from roundtrip.causal import comparisons, figures
+from roundtrip.causal import comparisons, figures, forecast
 from roundtrip.causal.data import (
     OUTCOMES,
     ZoneGroups,
@@ -161,6 +161,47 @@ def run_causal(settings: Settings, out_dir: Path | None = None, quick: bool = Fa
             {k: round(v["mean_gap_pct"], 2) for k, v in fit.windows.items()},
         )
 
+    # --- out-of-sample test of the synthetic control -----------------------------------
+    synth_oos: dict[str, Any] = {}
+    hold_start = settings.oos_train_end + dt.timedelta(days=1)
+    if data_end >= settings.oos_holdout_end:
+        oos_windows = {
+            "holdout": (hold_start, settings.oos_holdout_end),
+            "holdout_late": (
+                settings.oos_holdout_end - dt.timedelta(days=90),
+                settings.oos_holdout_end,
+            ),
+            **windows,
+        }
+        for outcome in settings.synth_outcomes:
+            wide = _usable_donors(zone_series(day, outcome, groups.donors), data_start, data_end)
+            block, fits = forecast.evaluate(
+                outcome,
+                cbd[outcome],
+                wide,
+                settings.oos_train_start,
+                settings.oos_train_end,
+                oos_windows,
+            )
+            block["verdict"] = forecast.drift_verdict(block, settings.oos_drift_tolerance_pct)
+            for res in block["models"].values():
+                w = res["params"].get("weights")
+                if w:
+                    res["params"]["weights"] = {
+                        f"{z} {groups.label(int(z))}": v
+                        for z, v in sorted(w.items(), key=lambda kv: -kv[1])[:6]
+                    }
+            synth_oos[outcome] = block
+            figures.oos_plot(fits, settings, fig_dir / f"synth_oos_{outcome}.png")
+            log.info(
+                "synth OOS %s: hold-out gap %s",
+                outcome,
+                {
+                    m: round(r["windows"]["holdout"]["mean_gap_pct"], 2)
+                    for m, r in block["models"].items()
+                },
+            )
+
     # --- three comparisons -----------------------------------------------------------
     estimates: list[dict[str, Any]] = []
     for outcome in OUTCOMES:
@@ -181,6 +222,24 @@ def run_causal(settings: Settings, out_dir: Path | None = None, quick: bool = Fa
                     comparisons.from_synth(fit, placebos[name], outcome, name).to_dict()
                 )
     figures.comparison_plot(estimates, fig_dir / "comparisons.png")
+
+    # Prior-year design on an untreated window: any "effect" here is drift, not policy.
+    prior_year_placebo: list[dict[str, Any]] = []
+    py_end = settings.anticipation_start - dt.timedelta(days=1)
+    if data_start <= settings.prior_year_placebo_start - dt.timedelta(days=364):
+        for outcome in OUTCOMES:
+            if outcome == "mean_cbd_fee":
+                continue
+            for est in comparisons.prior_year(
+                cbd[outcome],
+                donors_agg[outcome],
+                outcome,
+                "untreated_2024",
+                settings.prior_year_placebo_start,
+                py_end,
+                settings,
+            ):
+                prior_year_placebo.append(est.to_dict())
 
     # --- event studies -----------------------------------------------------------------
     weeks = zone_week_panel(day, settings)
@@ -263,6 +322,8 @@ def run_causal(settings: Settings, out_dir: Path | None = None, quick: bool = Fa
         "headline": headline,
         "estimates": estimates,
         "synth": synth,
+        "synth_oos": synth_oos,
+        "prior_year_placebo": prior_year_placebo,
         "event_study": es,
         "placebos": placebo_rows,
         "elapsed_seconds": round(time.perf_counter() - t0, 1),

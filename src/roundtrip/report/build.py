@@ -127,6 +127,102 @@ def _synth_diag(bundle: dict[str, Any]) -> str:
     return "\n".join(out) if out else "_2023 test not available (needs data through January 2024)._"
 
 
+OOS_LABELS = {
+    "simplex": "simplex weights (current design)",
+    "ridge": "ridge regression",
+}
+
+
+def _oos_section(bundle: dict[str, Any]) -> str:
+    oos = bundle.get("synth_oos") or {}
+    if not oos:
+        return "_Out-of-sample test not available (needs data through November 2024)._"
+    first = next(iter(oos.values()))
+    tr, hold = first["train"], first["windows"]["holdout"]
+    lines = [
+        f"Each model is trained on {tr[0]} to {tr[1]} only and then forecasts forward with "
+        f"its parameters frozen. The year from {hold[0]} to {hold[1]} is untreated, so a "
+        "credible counterfactual should stay on the actual CBD series there. Gaps are "
+        "actual minus forecast, % of forecast. The placebo column is the share of donor "
+        "zones whose own hold-out drift is at least as large as the CBD's, when each is "
+        "forecast from the others the same way; a small share means the CBD's drift is "
+        "unusual, not just noise.",
+        "",
+        "| Outcome | Model | Train RMSPE | Hold-out gap | Last quarter of hold-out "
+        "| Anticipation gap | Post gap | Donor share | Within tolerance |",
+        "|---|---|---|---|---|---|---|---|---|",
+    ]
+    for o, b in oos.items():
+        for m, r in b["models"].items():
+            w = r["windows"]
+            v = b["verdict"][m]
+            lines.append(
+                f"| {OUTCOME_LABELS.get(o, o)} | {OOS_LABELS.get(m, m)} | "
+                f"{r['train']['rmspe_pct']:.1f}% | {_fmt(w['holdout']['mean_gap_pct'])}% | "
+                f"{_fmt(w['holdout_late']['mean_gap_pct'])}% | "
+                f"{_fmt(w.get('anticipation', {}).get('mean_gap_pct'))}% | "
+                f"{_fmt(w.get('post', {}).get('mean_gap_pct'))}% | "
+                f"{r['placebo']['rank_p']:.2f} | {'yes' if v['passes'] else 'no'} |"
+            )
+    passing = {
+        o: [OOS_LABELS.get(m, m) for m, v in b["verdict"].items() if v["passes"]]
+        for o, b in oos.items()
+    }
+    lines += [""]
+    for o, ms in passing.items():
+        label = OUTCOME_LABELS.get(o, o)
+        if ms:
+            lines.append(f"- **{label}**: within tolerance out of sample: {', '.join(ms)}.")
+        else:
+            r = oos[o]["models"]["simplex"]
+            late = r["windows"]["holdout_late"]["mean_gap_pct"]
+            post = r["windows"].get("post", {}).get("mean_gap_pct")
+            tr = r["trend"]
+            trend_post = tr["extrapolated"].get("post")
+            readings = ""
+            if post is not None and trend_post is not None:
+                readings = (
+                    f" How much of the post gap of {_fmt(post)}% is policy depends entirely on "
+                    "what the drift would have done, and the data cannot say. If it stayed at "
+                    f"its last-quarter level ({_fmt(late)}%), about {_fmt(post - late)}% "
+                    f"remains. If it kept its hold-out trend ({_fmt(tr['slope_pct_per_month'], 2)}"
+                    f"% a month, {_fmt(trend_post)}% by the middle of the post year), about "
+                    f"{_fmt(post - trend_post)}% remains. Both are assumptions, not estimates."
+                )
+            lines.append(
+                f"- **{label}**: no model stays within tolerance over the untreated year. "
+                "Its anticipation and post gaps cannot be separated from drift with these "
+                "donors." + readings
+            )
+    figs = "\n\n".join(
+        f"![Out-of-sample forecasts: {OUTCOME_LABELS.get(o, o)}](figures/synth_oos_{o}.png)"
+        for o in oos
+    )
+    return "\n".join(lines) + "\n\n" + figs
+
+
+def _prior_year_placebo(bundle: dict[str, Any]) -> str:
+    rows = [e for e in bundle.get("prior_year_placebo", []) if e["adjusted"]]
+    if not rows:
+        return "_Not available._"
+    lines = [
+        "The prior-year design applied to an untreated window: "
+        f"{rows[0]['n_days']} days from 5 January to 13 November 2024, each compared with "
+        "the same weekday in 2023 and netted against the donor pool. Nothing changed in "
+        "policy, so a sound design finds nothing; anything it finds here is also inside its "
+        "post-period estimate.",
+        "",
+        "| Outcome | 'Effect' on the untreated window | 95% interval |",
+        "|---|---|---|",
+    ]
+    for e in rows:
+        lines.append(
+            f"| {OUTCOME_LABELS.get(e['outcome'], e['outcome'])} | {_fmt(e['effect_pct'])}% | "
+            f"[{_fmt(e['lo_pct'])}, {_fmt(e['hi_pct'])}] |"
+        )
+    return "\n".join(lines)
+
+
 def _placebo_verdict(bundle: dict[str, Any]) -> str:
     rows = [r for r in bundle["placebos"] if r["kind"] == "fake_date"]
     if not rows:
@@ -147,8 +243,8 @@ def _placebo_verdict(bundle: dict[str, Any]) -> str:
         "**Fake treatment dates in 2024 produce significant 'effects' for: "
         f"{items}.** For those outcomes the CBD was already diverging from the control "
         "group before the announcement, and the fixed-effects post estimate measures that "
-        "divergence as much as the policy. Read the synthetic control and prior-year "
-        "comparisons for them instead."
+        "divergence as much as the policy. Check the out-of-sample and prior-year placebo "
+        "results below before relying on any design for them."
     )
 
 
@@ -276,6 +372,16 @@ Effects on the CBD as a percent of the counterfactual, donor-adjusted, 95% inter
 ### The 2023 test of the synthetic control
 
 {_synth_diag(bundle)}
+
+### Out-of-sample test of the synthetic control
+
+Requested in the review of the 2026-08 release.
+
+{_oos_section(bundle)}
+
+### Prior-year design on an untreated year
+
+{_prior_year_placebo(bundle)}
 
 ### Pre-trends
 

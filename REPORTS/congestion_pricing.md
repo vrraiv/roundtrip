@@ -1,6 +1,6 @@
 # Congestion pricing and ride-hail in the Manhattan CBD
 
-_Candidate report, run `20261028T024608Z` (2026-10-28T02:46:17+00:00), git `daaaa69f`,
+_Candidate report, run `20261028T032834Z` (2026-10-28T03:28:47+00:00), git `32ec5357`,
 data 2023-01-01 to 2026-08-31 (44 months)._
 
 **Headline.** Relative to the synthetic control, CBD pickups from 2025-01-05 to 2026-01-03 show: trips -5.6% [-15.9, +4.6]; mean wait (s) -1.5% [-4.2, +1.2]; mean base fare ($) +2.0% [-0.5, +4.5] (percent of counterfactual, 95% placebo intervals).
@@ -126,6 +126,44 @@ Effects on the CBD as a percent of the counterfactual, donor-adjusted, 95% inter
 - **mean wait (s)**: in the 2023 test window the synthetic CBD missed the actual CBD by +2.9% on average (RMSPE ratio 1.29). Any post-period gap smaller than that in absolute value should not be read as an effect. Placebo-in-space p-value for the post window: 0.90.
 - **mean base fare ($)**: in the 2023 test window the synthetic CBD missed the actual CBD by +2.6% on average (RMSPE ratio 1.81). Any post-period gap smaller than that in absolute value should not be read as an effect. Placebo-in-space p-value for the post window: 0.08.
 
+### Out-of-sample test of the synthetic control
+
+Requested in the review of the 2026-08 release.
+
+Each model is trained on 2023-01-01 to 2023-11-13 only and then forecasts forward with its parameters frozen. The year from 2023-11-14 to 2024-11-13 is untreated, so a credible counterfactual should stay on the actual CBD series there. Gaps are actual minus forecast, % of forecast. The placebo column is the share of donor zones whose own hold-out drift is at least as large as the CBD's, when each is forecast from the others the same way; a small share means the CBD's drift is unusual, not just noise.
+
+| Outcome | Model | Train RMSPE | Hold-out gap | Last quarter of hold-out | Anticipation gap | Post gap | Donor share | Within tolerance |
+|---|---|---|---|---|---|---|---|---|
+| trips | simplex weights (current design) | 4.4% | -4.0% | -4.7% | -6.8% | -8.5% | 0.12 | no |
+| trips | ridge regression | 4.0% | -3.5% | -4.8% | -5.8% | -8.0% | 0.17 | no |
+| mean wait (s) | simplex weights (current design) | 4.6% | +1.4% | +1.9% | +2.6% | -0.5% | 0.27 | yes |
+| mean wait (s) | ridge regression | 3.3% | +2.6% | +3.1% | +2.9% | +0.9% | 0.12 | no |
+| mean base fare ($) | simplex weights (current design) | 3.5% | +0.1% | -0.2% | +3.4% | +2.7% | 0.88 | yes |
+| mean base fare ($) | ridge regression | 2.3% | +0.6% | -0.3% | +3.3% | +3.2% | 0.52 | yes |
+
+- **trips**: no model stays within tolerance over the untreated year. Its anticipation and post gaps cannot be separated from drift with these donors. How much of the post gap of -8.5% is policy depends entirely on what the drift would have done, and the data cannot say. If it stayed at its last-quarter level (-4.7%), about -3.8% remains. If it kept its hold-out trend (-0.10% a month, -5.5% by the middle of the post year), about -3.1% remains. Both are assumptions, not estimates.
+- **mean wait (s)**: within tolerance out of sample: simplex weights (current design).
+- **mean base fare ($)**: within tolerance out of sample: simplex weights (current design), ridge regression.
+
+![Out-of-sample forecasts: trips](figures/synth_oos_n_trips.png)
+
+![Out-of-sample forecasts: mean wait (s)](figures/synth_oos_mean_wait_seconds.png)
+
+![Out-of-sample forecasts: mean base fare ($)](figures/synth_oos_mean_base_fare.png)
+
+### Prior-year design on an untreated year
+
+The prior-year design applied to an untreated window: 314 days from 5 January to 13 November 2024, each compared with the same weekday in 2023 and netted against the donor pool. Nothing changed in policy, so a sound design finds nothing; anything it finds here is also inside its post-period estimate.
+
+| Outcome | 'Effect' on the untreated window | 95% interval |
+|---|---|---|
+| trips | -5.7% | [-6.3, -5.2] |
+| mean wait (s) | +0.4% | [-0.6, +1.3] |
+| mean base fare ($) | +3.9% | [+3.4, +4.5] |
+| mean driver pay ($) | +0.3% | [-0.2, +0.8] |
+| tip rate | +0.9% | [+0.3, +1.4] |
+| shared-request share | +2.1% | [-1.0, +5.4] |
+
 ### Pre-trends
 
 The joint test of the clean leads in the event study is reported per outcome and control
@@ -142,7 +180,7 @@ only pre-announcement data), and when the treated zones are a random third of th
 group (true dates). The share of placebo estimates with p < 0.05 should be near 5%; a
 higher share means the clustered standard errors understate the noise for that outcome.
 
-**Fake treatment dates in 2024 produce significant 'effects' for: trips (vs inner bk queens); mean base fare ($) (vs manhattan north, inner bk queens); mean driver pay ($) (vs manhattan north, inner bk queens); shared-request share (vs manhattan north, inner bk queens).** For those outcomes the CBD was already diverging from the control group before the announcement, and the fixed-effects post estimate measures that divergence as much as the policy. Read the synthetic control and prior-year comparisons for them instead.
+**Fake treatment dates in 2024 produce significant 'effects' for: trips (vs inner bk queens); mean base fare ($) (vs manhattan north, inner bk queens); mean driver pay ($) (vs manhattan north, inner bk queens); shared-request share (vs manhattan north, inner bk queens).** For those outcomes the CBD was already diverging from the control group before the announcement, and the fixed-effects post estimate measures that divergence as much as the policy. Check the out-of-sample and prior-year placebo results below before relying on any design for them.
 
 | Kind | Outcome | Control group | n | Mean estimate | Largest abs | Share p < 0.05 |
 |---|---|---|---|---|---|---|
@@ -249,8 +287,8 @@ _No approved release yet; this is the first candidate._
 
 | Field | Value |
 |---|---|
-| Run id | `20261028T024608Z` |
-| Git SHA | `daaaa69f4b6917aa8270fb489a84bc2dca64141e` |
+| Run id | `20261028T032834Z` |
+| Git SHA | `32ec535717b79e643d08bb95f5973ae721610814` |
 | Manifest hash | `d37e7e914398720f4c452eb5c71a44658116880ba69b517a50cc9a9818772976` |
 | Package version | 0.1.0 |
-| Analysis wall time | 9.4 s |
+| Analysis wall time | 13.6 s |
