@@ -7,8 +7,11 @@ human review gate before anything is published.
 
 ![Post-period effects on the CBD under three comparisons](REPORTS/figures/comparisons.png)
 
-**Headline (candidate, not yet reviewed).** In the first year of congestion pricing
-(5 January 2025 to 3 January 2026), relative to the counterfactual and net of what
+Public site: https://roundtrip-bh4.pages.dev (the last approved release, with the
+reviewer's notes).
+
+**Headline (release 2026-08, approved with notes).** In the first year of congestion
+pricing (5 January 2025 to 3 January 2026), relative to the counterfactual and net of what
 happened in comparable zones outside the CBD:
 
 | Outcome | Prior-year comparison | Synthetic control | Pre-window comparison |
@@ -19,8 +22,10 @@ happened in comparable zones outside the CBD:
 
 95% intervals; the synthetic control's are placebo-based and conservative. Full report
 with diagnostics, placebos and limitations: [REPORTS/congestion_pricing.md](REPORTS/congestion_pricing.md).
-These numbers are a candidate until the owner approves a release; see
-[releases/index.json](releases/index.json) for what has been approved.
+Numbers on main may be a newer candidate than the published release; see
+[releases/index.json](releases/index.json) for what has been approved, by whom and with
+what notes. The reviewer's note on 2026-08: the CBD was losing trip share throughout 2024,
+which complicates the event study design and the synthetic control.
 
 **Status: phase 2 (event study, synthetic control, report, review gate).**
 
