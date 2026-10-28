@@ -1,0 +1,129 @@
+name: backfill
+
+# One-time (or repair) processing of a range of months. One job per month, run
+# sequentially so each month sees the manifest written by the previous one.
+# Run it first for a single month and read the "Profile" section of the job
+# summary (peak RSS, wall time) before launching the full range.
+#
+# Two ways to start it:
+#   - workflow_dispatch from the default branch (inputs below), or
+#   - push a branch named trial/<start>_<end> (e.g. trial/2024-12_2025-01) to run the
+#     code on that branch against real data before it is merged.
+
+on:
+  push:
+    branches: ["trial/**"]
+  workflow_dispatch:
+    inputs:
+      start_month:
+        description: "First month (YYYY-MM)"
+        required: true
+        default: "2023-01"
+      end_month:
+        description: "Last month (YYYY-MM); blank = same as start"
+        required: false
+        default: ""
+      force:
+        description: "Reprocess months already in the manifest"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+  R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+  R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+  R2_BUCKET: ${{ secrets.R2_BUCKET }}
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      months: ${{ steps.months.outputs.months }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync --frozen
+      - id: months
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            SPEC="${GITHUB_REF_NAME#trial/}"
+            START="${SPEC%%_*}"; END="${SPEC##*_}"
+          else
+            START="${{ inputs.start_month }}"; END="${{ inputs.end_month }}"
+          fi
+          [ -z "$END" ] && END="$START"
+          MONTHS=$(uv run python -c "import json; from roundtrip.config import month_range; print(json.dumps(month_range('$START', '$END')))")
+          echo "months=$MONTHS" >> "$GITHUB_OUTPUT"
+          echo "Months: $MONTHS"
+
+  process:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        month: ${{ fromJson(needs.plan.outputs.months) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --frozen
+
+      - name: Pull manifest from R2
+        if: env.R2_BUCKET != ''
+        run: uv run roundtrip sync --prefix manifest.json
+
+      - name: Process ${{ matrix.month }}
+        id: process
+        run: |
+          FORCE=""
+          [ "${{ inputs.force }}" = "true" ] && FORCE="--force"
+          /usr/bin/time -v uv run roundtrip process-month --month ${{ matrix.month }} $FORCE 2> time.log
+          STATUS=$?
+          echo "---- /usr/bin/time -v ----"; cat time.log
+          exit $STATUS
+
+      - name: Profile
+        if: always()
+        run: |
+          {
+            echo "## ${{ matrix.month }}"
+            echo
+            echo '```'
+            grep -E "Maximum resident set size|Elapsed \(wall clock\)|Percent of CPU" time.log || true
+            echo '```'
+            echo
+            cat data/derived/validation/${{ matrix.month }}.md 2>/dev/null || echo "_no validation report_"
+            echo
+            echo '```json'
+            cat data/derived/runs/*-${{ matrix.month }}/run.json 2>/dev/null | head -40 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Push outputs to R2
+        if: env.R2_BUCKET != '' && steps.process.outcome == 'success'
+        run: uv run roundtrip push --month ${{ matrix.month }}
+
+      - name: Upload outputs as workflow artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: derived-${{ matrix.month }}
+          path: |
+            data/derived/manifest.json
+            data/derived/validation/${{ matrix.month }}.*
+            data/derived/panel/zone_hour/month=${{ matrix.month }}/
+            data/derived/sample/trips/month=${{ matrix.month }}/
+            data/derived/runs/*-${{ matrix.month }}/
+          retention-days: 30
+          if-no-files-found: warn

@@ -1,0 +1,171 @@
+name: monthly
+
+# Detect newly published TLC months, process each one (validate, build panel and
+# sample), mirror derived outputs to R2, and open a candidate PR carrying the
+# validation report and manifest. Nothing is published from a candidate PR until the
+# release gate (phase 2) approves it. Hard validation failures open an issue.
+
+on:
+  schedule:
+    - cron: "0 9 * * 1" # weekly; TLC publishes with ~2 months lag on irregular days
+  workflow_dispatch:
+    inputs:
+      max_months:
+        description: "Process at most this many new months"
+        default: "2"
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+env:
+  R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+  R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+  R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+  R2_BUCKET: ${{ secrets.R2_BUCKET }}
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      months: ${{ steps.discover.outputs.months }}
+      any: ${{ steps.discover.outputs.any }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --frozen
+      - name: Pull manifest from R2
+        if: env.R2_BUCKET != ''
+        run: uv run roundtrip sync --prefix manifest.json
+      - name: Fall back to the committed manifest
+        if: env.R2_BUCKET == ''
+        run: mkdir -p data/derived && cp manifest.json data/derived/manifest.json 2>/dev/null || true
+      - id: discover
+        run: |
+          LIMIT="${{ inputs.max_months || '2' }}"
+          OUT=$(uv run roundtrip discover --json)
+          echo "$OUT"
+          MONTHS=$(echo "$OUT" | uv run python -c "import json,sys; d=json.load(sys.stdin); print(json.dumps(d['new'][:int('$LIMIT')]))")
+          echo "months=$MONTHS" >> "$GITHUB_OUTPUT"
+          if [ "$MONTHS" = "[]" ]; then echo "any=false" >> "$GITHUB_OUTPUT"; else echo "any=true" >> "$GITHUB_OUTPUT"; fi
+          echo "$OUT" | uv run python -c "import json,sys; d=json.load(sys.stdin); print('revised months needing --force:', d['revised'])"
+
+  process:
+    needs: discover
+    if: needs.discover.outputs.any == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        month: ${{ fromJson(needs.discover.outputs.months) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --frozen
+      - name: Pull manifest from R2
+        if: env.R2_BUCKET != ''
+        run: uv run roundtrip sync --prefix manifest.json
+      - name: Fall back to the committed manifest
+        if: env.R2_BUCKET == ''
+        run: mkdir -p data/derived && cp manifest.json data/derived/manifest.json 2>/dev/null || true
+
+      - name: Process ${{ matrix.month }}
+        id: process
+        run: |
+          /usr/bin/time -v uv run roundtrip process-month --month ${{ matrix.month }} 2> time.log
+          STATUS=$?
+          grep -E "Maximum resident set size|Elapsed \(wall clock\)" time.log || true
+          exit $STATUS
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## ${{ matrix.month }}"
+            grep -E "Maximum resident set size|Elapsed \(wall clock\)" time.log | sed 's/^/    /' || true
+            echo
+            cat data/derived/validation/${{ matrix.month }}.md 2>/dev/null || echo "_no validation report_"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Push outputs to R2
+        if: env.R2_BUCKET != '' && steps.process.outcome == 'success'
+        run: uv run roundtrip push --month ${{ matrix.month }}
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: derived-${{ matrix.month }}
+          path: |
+            data/derived/manifest.json
+            data/derived/validation/${{ matrix.month }}.*
+            data/derived/runs/*-${{ matrix.month }}/
+          retention-days: 90
+          if-no-files-found: warn
+
+      - name: Open issue on hard validation failure
+        if: failure() && steps.process.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          {
+            echo "Run: $RUN_URL"
+            echo
+            cat data/derived/validation/${{ matrix.month }}.md 2>/dev/null               || echo "process-month failed before a report was written; see the run log."
+          } > issue_body.md
+          gh issue create --title "validation failed: ${{ matrix.month }}"             --label data-quality --body-file issue_body.md
+
+  candidate:
+    needs: [discover, process]
+    if: always() && needs.discover.outputs.any == 'true' && needs.process.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: derived-*
+          path: artifacts
+      - name: Copy validation reports and manifest into the repo
+        id: copy
+        run: |
+          mkdir -p validation
+          LAST=""
+          for d in $(ls -d artifacts/derived-* | sort); do
+            cp "$d"/validation/*.md validation/ 2>/dev/null || true
+            cp "$d"/validation/*.json validation/ 2>/dev/null || true
+            cp "$d"/manifest.json manifest.json
+            LAST=$(basename "$d" | sed 's/derived-//')
+          done
+          echo "month=$LAST" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Candidate: $LAST"
+            echo
+            echo "Months processed: ${{ needs.discover.outputs.months }}"
+            echo
+            for m in $(echo '${{ needs.discover.outputs.months }}' | tr -d '[]",' ); do
+              cat "validation/$m.md"; echo
+            done
+            echo
+            echo "_Phase 1 candidate: validation report and manifest only. Reports, estimate diffs and the review record arrive in phase 2._"
+          } > pr_body.md
+      - uses: peter-evans/create-pull-request@v7
+        with:
+          branch: candidate/${{ steps.copy.outputs.month }}
+          title: "candidate: ${{ steps.copy.outputs.month }}"
+          commit-message: "candidate ${{ steps.copy.outputs.month }}: validation report and manifest"
+          body-path: pr_body.md
+          labels: candidate
+          add-paths: |
+            validation/
+            manifest.json
