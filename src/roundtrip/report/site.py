@@ -86,37 +86,97 @@ OUTCOMES: tuple[Outcome, ...] = (
 OUTCOME_BY_KEY = {o.key: o for o in OUTCOMES}
 
 CSS = """
-:root { color-scheme: light dark; --accent: #1f6f8b; --rule: #8884; --muted: #777; }
-body { max-width: 56rem; margin: 0 auto; padding: 0 1rem 3rem;
-       font: 16px/1.55 system-ui, sans-serif; }
-header { padding: 1rem 0 0.5rem; border-bottom: 1px solid var(--rule); margin-bottom: 1.5rem; }
-header .brand { font-weight: 600; margin-right: 1rem; }
-nav a { margin-right: 0.9rem; white-space: nowrap; }
-nav a[aria-current] { font-weight: 600; text-decoration: none; }
-a { color: var(--accent); }
-h1 { font-size: 1.6rem; line-height: 1.25; }
-h2 { font-size: 1.2rem; margin-top: 2rem; }
-.purpose { font-size: 1.05rem; }
-.banner { border-left: 4px solid var(--accent); padding: 0.4rem 0.8rem; margin: 1rem 0;
-          background: #1f6f8b14; }
-.banner.candidate { border-color: #c47a00; background: #c47a0014; }
-.finding { border: 1px solid var(--rule); border-radius: 6px; padding: 0.8rem 1rem;
-           margin: 1rem 0; }
-.finding .label { text-transform: uppercase; font-size: 0.8rem; letter-spacing: 0.05em;
-                  color: var(--muted); }
-.finding .range { font-size: 1.5rem; font-weight: 600; margin: 0.1rem 0 0.4rem; }
-.finding .caveat { color: var(--muted); font-size: 0.85rem; margin-left: 0.5rem; }
-.findings { display: grid; gap: 1rem; grid-template-columns: 1fr; }
-@media (min-width: 48rem) { .findings { grid-template-columns: 1fr 1fr 1fr; } }
-img { max-width: 100%; height: auto; }
-table { border-collapse: collapse; font-size: 0.9em; margin: 1rem 0;
-        overflow-x: auto; display: block; }
-th, td { border: 1px solid var(--rule); padding: 0.3rem 0.6rem; text-align: left;
+:root { color-scheme: light dark;
+        --bg: #fbfbf9; --fg: #1c1c1a; --muted: #6b6b66; --rule: #e2e1dc;
+        --accent: #1f6f8b; --accent-soft: #1f6f8b14; --warn: #b25e09; --warn-soft: #b25e0914;
+        --card: #ffffff; --panel: #ffffff; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #15171a; --fg: #e8e6e1; --muted: #9a9a94; --rule: #2d3035;
+          --accent: #6fb3cc; --accent-soft: #6fb3cc1f; --warn: #e09a4a; --warn-soft: #e09a4a1f;
+          --card: #1c1f23; --panel: #f4f4f1; }
+}
+* { box-sizing: border-box; }
+html { background: var(--bg); }
+body { max-width: 60rem; margin: 0 auto; padding: 0 1rem 3rem; color: var(--fg);
+       font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.5rem 1.5rem;
+         padding: 1rem 0 0.6rem; border-bottom: 1px solid var(--rule); margin-bottom: 1.75rem; }
+header .brand { font-weight: 700; font-size: 1.15rem; letter-spacing: 0.01em;
+                text-decoration: none; color: var(--fg); }
+header .brand small { font-weight: 400; color: var(--muted); font-size: 0.85rem;
+                      margin-left: 0.6rem; }
+nav { display: flex; flex-wrap: wrap; gap: 0.1rem 0.2rem; margin-left: auto; }
+nav a { padding: 0.25rem 0.55rem; border-radius: 4px; text-decoration: none;
+        color: var(--fg); font-size: 0.95rem; white-space: nowrap; }
+nav a:hover { background: var(--accent-soft); }
+nav a[aria-current] { color: var(--accent); font-weight: 600;
+                      box-shadow: inset 0 -2px 0 var(--accent); border-radius: 4px 4px 0 0; }
+h1 { font-size: 1.9rem; line-height: 1.2; margin: 0 0 0.6rem; letter-spacing: -0.01em; }
+h2 { font-size: 1.25rem; margin: 2.2rem 0 0.6rem; }
+h3 { font-size: 1.05rem; margin: 1.6rem 0 0.4rem; }
+p { margin: 0.6rem 0 0.9rem; }
+.purpose { font-size: 1.1rem; color: var(--muted); max-width: 44rem; margin-bottom: 1.4rem; }
+.status { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2rem 0.6rem;
+          font-size: 0.88rem; color: var(--muted); padding: 0.45rem 0.8rem; border-radius: 6px;
+          background: var(--accent-soft); margin: 0 0 1.4rem; }
+.status b { color: var(--fg); }
+.status .dot { display: inline-block; width: 0.55rem; height: 0.55rem; border-radius: 50%;
+               background: var(--accent); margin-right: 0.35rem; vertical-align: middle;
+               position: relative; top: -1px; }
+.status.candidate { background: var(--warn-soft); }
+.status.candidate .dot { background: var(--warn); }
+.status details { flex-basis: 100%; }
+.status summary { cursor: pointer; color: var(--accent); }
+.status code { font-size: 0.82em; }
+.findings { display: grid; gap: 1rem; grid-template-columns: 1fr; margin: 1.2rem 0 1.6rem; }
+@media (min-width: 48rem) { .findings { grid-template-columns: repeat(3, 1fr); } }
+.finding { background: var(--card); border: 1px solid var(--rule);
+           border-top: 3px solid var(--accent); border-radius: 8px;
+           padding: 0.9rem 1.1rem 0.6rem; display: flex; flex-direction: column; }
+.finding .label { text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.08em;
+                  color: var(--muted); font-weight: 600; }
+.finding .range { font-size: 1.7rem; font-weight: 700; margin: 0.15rem 0 0.35rem;
+                  letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
+.finding .caveat { display: inline-block; font-size: 0.72rem; font-weight: 600;
+                   letter-spacing: 0.04em; text-transform: uppercase; color: var(--warn);
+                   background: var(--warn-soft);
+                   padding: 0.1rem 0.45rem; border-radius: 999px; vertical-align: middle;
+                   margin-left: 0.4rem; }
+.finding p { font-size: 0.95rem; margin: 0 0 0.5rem; }
+.finding .more { margin-top: auto; font-size: 0.9rem; }
+figure { margin: 1.4rem 0; }
+figure .panel { background: var(--panel); border-radius: 8px; padding: 0.6rem;
+                border: 1px solid var(--rule); }
+figure img { display: block; width: 100%; height: auto; }
+figcaption { color: var(--muted); font-size: 0.85rem; margin-top: 0.5rem; }
+.table-wrap { overflow-x: auto; margin: 1rem 0; }
+table { border-collapse: collapse; width: 100%; font-size: 0.92em;
+        font-variant-numeric: tabular-nums; }
+th, td { border-bottom: 1px solid var(--rule); padding: 0.45rem 0.7rem; text-align: left;
          vertical-align: top; }
-code { font-size: 0.9em; }
+th { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted);
+     border-bottom: 2px solid var(--rule); }
+tbody tr:nth-child(even) { background: var(--accent-soft); }
+code { font-size: 0.88em; }
+blockquote { margin: 1rem 0; padding: 0.3rem 1rem; border-left: 3px solid var(--rule);
+             color: var(--muted); }
 .note { color: var(--muted); font-size: 0.9rem; }
+.links { margin: 1.4rem 0; }
+.links a { margin-right: 1.2rem; }
 footer { margin-top: 3rem; padding-top: 1rem; border-top: 1px solid var(--rule);
-         font-size: 0.85em; color: var(--muted); }
+         font-size: 0.82em; color: var(--muted); line-height: 1.5; }
+@media (max-width: 47.99rem) {
+  /* phones: wordmark on its own line, the seven links in one row that scrolls sideways */
+  header { flex-direction: column; align-items: stretch; gap: 0.3rem; padding-bottom: 0; }
+  nav { margin: 0 -1rem; padding: 0 1rem 0.5rem; flex-wrap: nowrap; overflow-x: auto;
+        scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+  nav::-webkit-scrollbar { display: none; }
+  nav a { padding: 0.3rem 0.5rem; font-size: 0.9rem; }
+  nav a[aria-current] { border-radius: 4px; }
+  h1 { font-size: 1.55rem; }
+  .finding .range { font-size: 1.5rem; }
+}
 """
 
 PAGE = """<!doctype html>
@@ -124,9 +184,9 @@ PAGE = """<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title}</title><style>{css}</style></head>
 <body>
-<header><span class="brand">roundtrip</span><nav>{nav}</nav></header>
+<header><a class="brand" href="{home}">roundtrip<small>NYC ride-hail economics</small></a>
+<nav>{nav}</nav></header>
 <main>
-{banner}
 {body}
 </main>
 <footer>{footer}</footer>
@@ -277,17 +337,50 @@ def approval_banner(entry: dict[str, Any] | None, run_id: str | None = None) -> 
 
 
 def _banner_html(entry: dict[str, Any] | None, run_id: str | None) -> str:
-    md = approval_banner(entry, run_id)
-    body = markdown.markdown(md).replace("<blockquote>", "").replace("</blockquote>", "")
-    cls = "banner" if md.startswith("> **Reviewed") else "banner candidate"
-    return f'<div class="{cls}">{body}</div>'
+    """One status line under the title: reviewed release or candidate, with the run ids and
+    the reviewer's notes folded away."""
+    e = html.escape
+    if entry is None or (run_id is not None and str(entry.get("run_id")) != run_id):
+        text = (
+            '<b><span class="dot"></span>Not yet reviewed.</b> These estimates are a candidate '
+            "and have not been approved by the reviewer."
+        )
+        if run_id is not None:
+            text += f" Candidate run <code>{e(run_id)}</code>."
+        if entry is not None:
+            text += (
+                f" The last approved release is {e(str(entry['month']))} "
+                f"(run <code>{e(str(entry['run_id']))}</code>)."
+            )
+        return f'<div class="status candidate">{text}</div>'
+    text = (
+        f'<b><span class="dot"></span>Reviewed release {e(str(entry["month"]))}.</b> '
+        f"Approved by {e(str(entry['reviewer']))} on {e(str(entry['date']))} "
+        f"({e(str(entry['status']))}); data through {e(str(entry['data_end']))}."
+    )
+    notes = str(entry.get("notes") or "").strip()
+    details = (
+        f"<summary>Reviewer's notes and run ids</summary><p>Reviewer's notes: {e(notes)}</p>"
+        if notes
+        else "<summary>Run ids</summary>"
+    )
+    details += (
+        f"<p>Run <code>{e(str(entry['run_id']))}</code>, git "
+        f"<code>{e(str(entry['git_sha']))}</code>, manifest "
+        f"<code>{e(str(entry.get('manifest_hash', '')))}</code>.</p>"
+    )
+    return f'<div class="status">{text}<details>{details}</details></div>'
 
 
 # --- pages ----------------------------------------------------------------------------
 
 
 def _md(text: str) -> str:
-    return markdown.markdown(text, extensions=["tables", "fenced_code"])
+    out = markdown.markdown(text, extensions=["tables", "fenced_code"])
+    # wide tables scroll sideways on a phone instead of breaking the layout
+    return out.replace("<table>", '<div class="table-wrap"><table>').replace(
+        "</table>", "</table></div>"
+    )
 
 
 def _nav(current: str, prefix: str = "") -> str:
@@ -316,13 +409,13 @@ def _finding_block(o: Outcome, bundle: dict[str, Any]) -> str:
     rows = post_estimates(bundle, o.key)
     rng = effect_range(rows)
     d = drift(bundle, o.key)
-    caveat = '<span class="caveat">(see caveat)</span>' if d is not None and not d["passes"] else ""
+    caveat = '<span class="caveat">see caveat</span>' if d is not None and not d["passes"] else ""
     return (
         '<div class="finding">'
         f'<div class="label">{o.title}</div>'
-        f'<div class="range">{html.escape(range_label(rng))} {caveat}</div>'
-        f"<p>{html.escape(finding_sentence(o, rng, d))} "
-        f'<a href="{o.page}">more</a></p></div>'
+        f'<div class="range">{html.escape(range_label(rng))}{caveat}</div>'
+        f"<p>{html.escape(finding_sentence(o, rng, d))}</p>"
+        f'<a class="more" href="{o.page}">{o.title} in detail →</a></div>'
     )
 
 
@@ -334,10 +427,11 @@ def home_html(bundle: dict[str, Any], has_figures: bool) -> str:
     ]
     if has_figures:
         parts.append(
-            '<figure><img src="figures/comparisons.png" alt="First-year effect on the CBD under '
-            'three comparisons, with 95% intervals"><figcaption class="note">First-year effect '
-            "under the three comparisons, with 95% intervals. Each is net of what happened in "
-            "comparable zones outside the CBD.</figcaption></figure>"
+            '<figure><div class="panel"><img src="figures/comparisons.png" alt="First-year '
+            'effect on the CBD under three comparisons, with 95% intervals"></div>'
+            "<figcaption>First-year effect under the three comparisons, with 95% intervals. "
+            "Each is net of what happened in comparable zones outside the CBD.</figcaption>"
+            "</figure>"
         )
     w = bundle.get("windows", {})
     post = w.get("post", {})
@@ -349,8 +443,8 @@ def home_html(bundle: dict[str, Any], has_figures: bool) -> str:
         "assumptions; the range across them is the honest summary.</p>"
     )
     parts.append(
-        '<p><a href="method.html">How we measure it</a> · <a href="report.html">Full report'
-        '</a> · <a href="releases.html">Releases</a></p>'
+        '<p class="links"><a href="method.html">How we measure it</a>'
+        '<a href="report.html">Full report</a><a href="releases.html">Releases</a></p>'
     )
     return "\n".join(parts)
 
@@ -364,8 +458,8 @@ def _estimates_table(bundle: dict[str, Any], outcome: str) -> str:
     order = list(DESIGN_LABELS)
     rows.sort(key=lambda e: (order.index(e["design"]) if e["design"] in order else 9, e["window"]))
     out = [
-        "<table><thead><tr><th>Comparison</th><th>Window</th><th>Effect</th>"
-        "<th>95% interval</th><th>Days</th></tr></thead><tbody>"
+        '<div class="table-wrap"><table><thead><tr><th>Comparison</th><th>Window</th>'
+        "<th>Effect</th><th>95% interval</th><th>Days</th></tr></thead><tbody>"
     ]
     for e in rows:
         out.append(
@@ -374,7 +468,7 @@ def _estimates_table(bundle: dict[str, Any], outcome: str) -> str:
             f"<td>[{float(e['lo_pct']):+.1f}, {float(e['hi_pct']):+.1f}]</td>"
             f"<td>{int(e.get('n_days', 0))}</td></tr>"
         )
-    out.append("</tbody></table>")
+    out.append("</tbody></table></div>")
     return "".join(out)
 
 
@@ -388,10 +482,10 @@ def outcome_html(o: Outcome, bundle: dict[str, Any], has_figures: bool) -> str:
     ]
     if has_figures:
         parts.append(
-            f'<figure><img src="figures/synth_{o.key}.png" alt="{o.title}: CBD actual and '
-            'synthetic control, weekly"><figcaption class="note">CBD actual and its synthetic '
-            "control, weekly means. The anticipation window and the first year of the charge "
-            "are shaded.</figcaption></figure>"
+            f'<figure><div class="panel"><img src="figures/synth_{o.key}.png" alt="{o.title}: '
+            'CBD actual and synthetic control, weekly"></div><figcaption>CBD actual and its '
+            "synthetic control, weekly means. The anticipation window and the first year of "
+            "the charge are shaded.</figcaption></figure>"
         )
     parts.append("<h2>Estimates</h2>")
     parts.append(
@@ -430,8 +524,8 @@ def outcome_html(o: Outcome, bundle: dict[str, Any], has_figures: bool) -> str:
             + "</p>"
         )
     parts.append(
-        '<p><a href="method.html">How we measure it</a> · <a href="report.html">Full report '
-        "with diagnostics</a></p>"
+        '<p class="links"><a href="method.html">How we measure it</a>'
+        '<a href="report.html">Full report with diagnostics</a></p>'
     )
     return "\n".join(parts)
 
@@ -449,8 +543,9 @@ def releases_html(
         "<h1>Releases</h1>",
         "<p>One row per reviewed run. A release replaces the front page; earlier releases "
         "stay at their own address so a number cited by month keeps resolving.</p>",
-        "<table><thead><tr><th>Release</th><th>Decision</th><th>Reviewer</th><th>Date</th>"
-        "<th>Data through</th><th>Run</th><th>Notes</th></tr></thead><tbody>",
+        '<div class="table-wrap"><table><thead><tr><th>Release</th><th>Decision</th>'
+        "<th>Reviewer</th><th>Date</th><th>Data through</th><th>Run</th><th>Notes</th></tr>"
+        "</thead><tbody>",
     ]
     for e in rows:
         month = str(e.get("month", ""))
@@ -468,7 +563,7 @@ def releases_html(
         )
     if not rows:
         parts.append('<tr><td colspan="7">No reviewed release yet.</td></tr>')
-    parts.append("</tbody></table>")
+    parts.append("</tbody></table></div>")
     sha = str(bundle.get("git_sha", ""))[:12]
     parts += [
         "<h2>Getting the data</h2>",
@@ -508,10 +603,19 @@ def _md_page(path: Path | None, title: str, missing: str) -> tuple[str, str]:
 
 
 def _write(
-    out_dir: Path, name: str, title: str, body: str, banner: str, nav: str, footer: str
+    out_dir: Path,
+    name: str,
+    title: str,
+    body: str,
+    banner: str,
+    nav: str,
+    footer: str,
+    home: str = "index.html",
 ) -> Path:
+    # the status line sits under the page title, not above it
+    body = body.replace("</h1>", "</h1>\n" + banner, 1) if "</h1>" in body else banner + body
     page = PAGE.format(
-        title=html.escape(title), css=CSS, nav=nav, banner=banner, body=body, footer=footer
+        title=html.escape(title), css=CSS, nav=nav, home=home, body=body, footer=footer
     )
     dest = out_dir / name
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -545,6 +649,7 @@ def render_release(
             banner,
             _nav("index.html", nav_prefix),
             footer,
+            home=f"{nav_prefix}index.html",
         )
     ]
     for o in OUTCOMES:
@@ -557,6 +662,7 @@ def render_release(
                 banner,
                 _nav(o.page, nav_prefix),
                 footer,
+                home=f"{nav_prefix}index.html",
             )
         )
     return written
