@@ -15,6 +15,34 @@ The headline figure and three headline numbers with intervals arrive with phase 
 | 3 | Wait-time and driver-pay models with drift monitoring; uplift on an RCT | later |
 | 4 | Optional: Chicago, weather, interactive site | maybe |
 
+## Phase 1 on real data
+
+Two months processed end to end on the standard GitHub Actions runner from the
+`phase-1/scaffold` branch (runs 40607735699 and 40607914444), no R2 configured, outputs kept
+as workflow artifacts:
+
+| Month | Rows | Raw size | Wall time | Peak RSS | Validation | Schema | Panel | Sample |
+|---|---|---|---|---|---|---|---|---|
+| 2024-12 | 21,068,851 | 507 MB | 19 s | 2.3 GB | pass | hvfhv-2019 | 365,227 rows, 23 MB | 96,758 rows, 3.7 MB |
+| 2025-01 | 20,405,666 | 491 MB | 23 s | 2.2 GB | pass | hvfhv-2025-cbd | 364,630 rows, 23 MB | 96,774 rows, 3.7 MB |
+
+Well inside the 10 GB DuckDB cap, so a 44-month backfill is about 20 minutes of runner
+time. At ~27 MB of derived output per month the R2 footprint for 2023-01 to date is about
+1.2 GB, inside the 2 GB target; rounding panel floats or trimming columns would halve it if
+needed later.
+
+Things the reviewer should know from these two months:
+
+- 1.2% of December trips have a pickup timestamp earlier than the request timestamp. The
+  hard threshold is 2%, so this check is closer to failing than the others. Owner to decide
+  whether to treat it as soft or raise the threshold; the affected trips are already
+  excluded from wait-time means.
+- `on_scene_datetime` and `originating_base_num` are null for 24% of trips (Lyft does not
+  report them). The null-rate bands will encode this once three months of history exist.
+- In January 2025 the mean `cbd_congestion_fee` on pickups in the 38 CBD zones is $1.48
+  (the per-trip charge is $1.50) versus $0.14 elsewhere, which is consistent with the MTA
+  zone list used in `config.py`.
+
 ## What runs every month
 
 1. **Discover.** Probe TLC's CDN for months not yet in the manifest (one HEAD request per
