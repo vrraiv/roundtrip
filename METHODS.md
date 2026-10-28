@@ -27,6 +27,20 @@ How agent-written code is validated:
   treatment effect, and the headline estimate compared with published benchmarks the owner
   supplies.
 
+## Study design decisions (owner)
+
+- **Anticipation window, 14 Nov 2024 to 4 Jan 2025.** Congestion pricing was announced
+  (revived at $9) on 14 November 2024 and took effect on 5 January 2025. Behaviour in
+  between may already reflect the policy, so those weeks are neither clean "before" nor
+  "after". Owner design (2026-10-27): build a synthetic control for the CBD from zones
+  outside it, fit on the period before the announcement, and forecast CBD outcomes over the
+  window. The gap between actual and forecast is the anticipation effect; the event study
+  then treats the window as its own period rather than folding it into the pre-period.
+  The design is tested first on the same calendar window one year earlier (14 Nov 2023 to
+  4 Jan 2024), when no policy change occurred: a good design forecasts that window with no
+  systematic gap. Still to specify: outcome variables, daily versus zone-hour units, the
+  donor pool (all non-CBD zones or Manhattan-only), and the estimator variant.
+
 ## Data handling choices (phase 1)
 
 - Raw TLC files are streamed, hashed and discarded. The manifest records URL, size,

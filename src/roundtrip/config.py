@@ -128,7 +128,14 @@ class Settings(BaseSettings):
 
     # --- study design -------------------------------------------------------------------
     treatment_date: dt.date = dt.date(2025, 1, 5)
-    anticipation_start: dt.date = dt.date(2024, 12, 1)  # OWNER DECISION: handling of Dec-24
+    # Anticipation window (owner design, 2026-10-27): from the 14 Nov 2024 announcement of
+    # the $9 toll to the 5 Jan 2025 start. Handled with a synthetic-control forecast of CBD
+    # outcomes over the window; the same calendar window one year earlier, when nothing
+    # happened, is the placebo used to test the forecast design.
+    anticipation_start: dt.date = dt.date(2024, 11, 14)
+    anticipation_end: dt.date = dt.date(2025, 1, 5)  # exclusive; equals treatment_date
+    placebo_window_start: dt.date = dt.date(2023, 11, 14)
+    placebo_window_end: dt.date = dt.date(2024, 1, 5)  # exclusive
     cbd_zones: tuple[int, ...] = CBD_ZONES
     airport_zones: tuple[int, ...] = AIRPORT_ZONES
     base_codes: dict[str, str] = Field(default_factory=lambda: dict(BASE_CODES))

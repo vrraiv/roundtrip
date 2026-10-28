@@ -142,12 +142,16 @@ of a coding agent.
 ## Owner decisions
 
 Settled: data start month 2023-01; MIT licence; pickup-before-request check hard at 5%;
+anticipation window 14 Nov 2024 to 4 Jan 2025 handled by a synthetic-control forecast
+tested on the same window a year earlier;
 R2 bucket and repo secrets in place
 (the bucket secret may be named `R2_BUCKET` or `R2_BUCKET_NAME`, the workflows accept
 either).
 
 Still open:
 
-- Control group for the congestion-pricing design, treatment of December 2024 anticipation,
-  airport trips, and the fare measure given surcharge pass-through.
+- Control group for the congestion-pricing event study itself, airport trips, and the fare
+  measure given surcharge pass-through.
+- Details of the anticipation-window synthetic control (outcomes, unit, donor pool,
+  estimator); the design is set, see METHODS.md.
 - Benchmark estimates to compare against.
