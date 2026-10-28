@@ -35,7 +35,8 @@ env:
   R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
   R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
   R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-  R2_BUCKET: ${{ secrets.R2_BUCKET }}
+  # Either secret name works; the brief says R2_BUCKET, the bucket was first added as R2_BUCKET_NAME.
+  R2_BUCKET: ${{ secrets.R2_BUCKET || secrets.R2_BUCKET_NAME }}
 
 jobs:
   plan:
@@ -49,6 +50,13 @@ jobs:
         with:
           python-version: "3.12"
       - run: uv sync --frozen
+      - name: Secrets present (lengths only)
+        run: |
+          echo "R2_ACCOUNT_ID: ${#R2_ACCOUNT_ID} chars"
+          echo "R2_ACCESS_KEY_ID: ${#R2_ACCESS_KEY_ID} chars"
+          echo "R2_SECRET_ACCESS_KEY: ${#R2_SECRET_ACCESS_KEY} chars"
+          echo "R2_BUCKET: ${#R2_BUCKET} chars"
+          echo "secret set: R2_BUCKET=${{ secrets.R2_BUCKET != '' }} R2_BUCKET_NAME=${{ secrets.R2_BUCKET_NAME != '' }}; env.R2_BUCKET set=${{ env.R2_BUCKET != '' }}"
       - id: months
         run: |
           if [ "${{ github.event_name }}" = "push" ]; then

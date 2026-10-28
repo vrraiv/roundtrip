@@ -61,6 +61,21 @@ class R2Settings(BaseSettings):
     secret_access_key: str | None = None
     bucket: str | None = None
 
+    @field_validator("account_id")
+    @classmethod
+    def _bare_account_id(cls, value: str | None) -> str | None:
+        """Accept the S3 endpoint URL in place of the bare account id.
+
+        The Cloudflare dashboard shows ``https://<id>.r2.cloudflarestorage.com`` next to the
+        id, and pasting the whole URL into the secret is an easy mistake.
+        """
+        if value is None:
+            return None
+        v = value.strip()
+        v = v.removeprefix("https://").removeprefix("http://")
+        v = v.split("/", 1)[0].split(".", 1)[0]
+        return v or None
+
     @property
     def configured(self) -> bool:
         return all((self.account_id, self.access_key_id, self.secret_access_key, self.bucket))
@@ -105,7 +120,7 @@ class Settings(BaseSettings):
     # (``trip-data/fhvhv_tripdata_YYYY-MM.parquet``) is accepted for tests and offline runs.
     tlc_base_url: str = "https://d37ci6vzurychx.cloudfront.net"
     dataset: str = "fhvhv"
-    start_month: str = "2023-01"  # OWNER DECISION: default per brief; confirm before phase 2
+    start_month: str = "2023-01"  # confirmed by the owner 2026-10-27
     end_month: str | None = None  # None = discover up to the current month
 
     # --- study design -------------------------------------------------------------------

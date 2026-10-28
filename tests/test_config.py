@@ -45,3 +45,15 @@ def test_settings_paths_and_urls(settings: Settings) -> None:
     assert settings.manifest_path == settings.derived_dir / "manifest.json"
     assert settings.start_month == "2024-11"
     assert not settings.r2.configured
+
+
+def test_r2_account_id_accepts_endpoint_url() -> None:
+    from roundtrip.config import R2Settings
+
+    bare = R2Settings(account_id="0123456789abcdef0123456789abcdef", _env_file=None)
+    url = R2Settings(
+        account_id="https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com/",
+        _env_file=None,
+    )
+    assert url.account_id == bare.account_id
+    assert url.endpoint_url == "https://0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com"
