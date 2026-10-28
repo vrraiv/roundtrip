@@ -105,8 +105,9 @@ jobs:
             echo "Recorded: **${{ steps.record.outputs.decision }}** for ${{ steps.form.outputs.month }} by @$REVIEWER."
             echo
             echo "One more tap: publish.yml is waiting for your approval in the \`release\` environment."
-            echo "Open the run from ${{ github.server_url }}/${{ github.repository }}/actions/workflows/publish.yml,"
-            echo "choose Review deployments, tick release, Approve. This issue closes when the site is live."
+            echo "In the GitHub app it is under **Inbox** (\"Review pending deployments\"); on the web, open the run from"
+            echo "${{ github.server_url }}/${{ github.repository }}/actions/workflows/publish.yml and choose Review deployments."
+            echo "Tick release, Approve. This issue closes when the site is live."
           } > /tmp/comment.md
           gh issue comment "$ISSUE" --body-file /tmp/comment.md
 
