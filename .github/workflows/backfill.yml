@@ -7,7 +7,7 @@ name: backfill
 #
 # Two ways to start it:
 #   - workflow_dispatch from the default branch (inputs below), or
-#   - push a branch named trial/<start>..<end> (e.g. trial/2024-12..2025-01) to run the
+#   - push a branch named trial/<start>_<end> (e.g. trial/2024-12_2025-01) to run the
 #     code on that branch against real data before it is merged.
 
 on:
@@ -53,7 +53,7 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "push" ]; then
             SPEC="${GITHUB_REF_NAME#trial/}"
-            START="${SPEC%%..*}"; END="${SPEC##*..}"
+            START="${SPEC%%_*}"; END="${SPEC##*_}"
           else
             START="${{ inputs.start_month }}"; END="${{ inputs.end_month }}"
           fi
