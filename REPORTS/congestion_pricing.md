@@ -1,6 +1,6 @@
 # Congestion pricing and ride-hail in the Manhattan CBD
 
-_Candidate report, run `20261028T024608Z` (2026-10-28T02:46:17+00:00), git `daaaa69f`,
+_Candidate report, run `20261028T032106Z` (2026-10-28T03:21:24+00:00), git `fbfd850b`,
 data 2023-01-01 to 2026-08-31 (44 months)._
 
 **Headline.** Relative to the synthetic control, CBD pickups from 2025-01-05 to 2026-01-03 show: trips -5.6% [-15.9, +4.6]; mean wait (s) -1.5% [-4.2, +1.2]; mean base fare ($) +2.0% [-0.5, +4.5] (percent of counterfactual, 95% placebo intervals).
@@ -126,6 +126,31 @@ Effects on the CBD as a percent of the counterfactual, donor-adjusted, 95% inter
 - **mean wait (s)**: in the 2023 test window the synthetic CBD missed the actual CBD by +2.9% on average (RMSPE ratio 1.29). Any post-period gap smaller than that in absolute value should not be read as an effect. Placebo-in-space p-value for the post window: 0.90.
 - **mean base fare ($)**: in the 2023 test window the synthetic CBD missed the actual CBD by +2.6% on average (RMSPE ratio 1.81). Any post-period gap smaller than that in absolute value should not be read as an effect. Placebo-in-space p-value for the post window: 0.08.
 
+### Out-of-sample test of the synthetic control
+
+Requested in the review of the 2026-08 release.
+
+Each model is trained on 2023-01-01 to 2023-11-13 only and then forecasts forward with its parameters frozen. The year from 2023-11-14 to 2024-11-13 is untreated, so a credible counterfactual should stay on the actual CBD series there. Gaps are actual minus forecast, % of forecast. The placebo column is the share of donor zones whose own hold-out drift is at least as large as the CBD's, when each is forecast from the others the same way; a small share means the CBD's drift is unusual, not just noise.
+
+| Outcome | Model | Train RMSPE | Hold-out gap | Last quarter of hold-out | Anticipation gap | Post gap | Donor share | Within tolerance |
+|---|---|---|---|---|---|---|---|---|
+| trips | simplex weights (current design) | 4.4% | -4.0% | -4.7% | -6.8% | -8.5% | 0.12 | no |
+| trips | ridge regression | 4.0% | -3.5% | -4.8% | -5.8% | -8.0% | 0.17 | no |
+| mean wait (s) | simplex weights (current design) | 4.6% | +1.4% | +1.9% | +2.6% | -0.5% | 0.27 | yes |
+| mean wait (s) | ridge regression | 3.3% | +2.6% | +3.1% | +2.9% | +0.9% | 0.12 | no |
+| mean base fare ($) | simplex weights (current design) | 3.5% | +0.1% | -0.2% | +3.4% | +2.7% | 0.88 | yes |
+| mean base fare ($) | ridge regression | 2.3% | +0.6% | -0.3% | +3.3% | +3.2% | 0.52 | yes |
+
+- **trips**: no model stays within tolerance over the untreated year. Its anticipation and post gaps cannot be separated from drift with these donors. If the drift simply continued at its last-quarter rate of -4.7%, the post gap of -8.5% would be about -3.8% net of it; that is an assumption, not an estimate.
+- **mean wait (s)**: within tolerance out of sample: simplex weights (current design).
+- **mean base fare ($)**: within tolerance out of sample: simplex weights (current design), ridge regression.
+
+![Out-of-sample forecasts: trips](figures/synth_oos_n_trips.png)
+
+![Out-of-sample forecasts: mean wait (s)](figures/synth_oos_mean_wait_seconds.png)
+
+![Out-of-sample forecasts: mean base fare ($)](figures/synth_oos_mean_base_fare.png)
+
 ### Pre-trends
 
 The joint test of the clean leads in the event study is reported per outcome and control
@@ -249,8 +274,8 @@ _No approved release yet; this is the first candidate._
 
 | Field | Value |
 |---|---|
-| Run id | `20261028T024608Z` |
-| Git SHA | `daaaa69f4b6917aa8270fb489a84bc2dca64141e` |
+| Run id | `20261028T032106Z` |
+| Git SHA | `fbfd850b750831b6e9b867677144f61ccd674370` |
 | Manifest hash | `d37e7e914398720f4c452eb5c71a44658116880ba69b517a50cc9a9818772976` |
 | Package version | 0.1.0 |
-| Analysis wall time | 9.4 s |
+| Analysis wall time | 18.8 s |
