@@ -100,6 +100,9 @@ class ValidationThresholds(BaseModel):
     pay_p999_min: float = 80.0
     pay_p999_max: float = 500.0
     max_flagged_share: float = 0.02  # hard fail if more than this share of trips is flagged
+    # Pickup-before-request is a steady ~1.2% of HVFHV trips (reporting quirk; excluded from
+    # wait-time means). Owner decision 2026-10-27: keep the check hard, limit 5%.
+    max_pickup_before_request_share: float = 0.05
     max_unknown_zone_share: float = 0.001
     max_unknown_base_share: float = 0.001
 

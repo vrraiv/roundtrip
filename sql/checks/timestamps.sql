@@ -28,8 +28,8 @@ SELECT 'ts_not_null' AS check_name, 'hard' AS severity,
 FROM t
 UNION ALL
 SELECT 'ts_pickup_after_request', 'hard',
-       n_pickup_before_request <= ${max_flagged_share} * n,
-       n_pickup_before_request / n, ${max_flagged_share},
+       n_pickup_before_request <= ${max_pickup_before_request_share} * n,
+       n_pickup_before_request / n, ${max_pickup_before_request_share},
        format('{:,} of {:,} trips picked up before request', n_pickup_before_request, n)
 FROM t
 UNION ALL

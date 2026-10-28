@@ -33,10 +33,11 @@ needed later.
 
 Things the reviewer should know from these two months:
 
-- 1.2% of December trips have a pickup timestamp earlier than the request timestamp. The
-  hard threshold is 2%, so this check is closer to failing than the others. Owner to decide
-  whether to treat it as soft or raise the threshold; the affected trips are already
-  excluded from wait-time means.
+- 1.2% of trips in every month checked have a pickup timestamp earlier than the request
+  timestamp (221k of 18.5M in January 2023). This is a steady reporting quirk, and the
+  affected trips are excluded from wait-time means. Owner decision: the check stays hard
+  with its own 5% limit (`max_pickup_before_request_share`), so only a real break stops
+  the run.
 - `on_scene_datetime` and `originating_base_num` are null for 24% of trips (Lyft does not
   report them). The null-rate bands will encode this once three months of history exist.
 - In January 2025 the mean `cbd_congestion_fee` on pickups in the 38 CBD zones is $1.48
@@ -140,14 +141,13 @@ of a coding agent.
 
 ## Owner decisions
 
-Settled: data start month 2023-01; MIT licence; R2 bucket and repo secrets in place
+Settled: data start month 2023-01; MIT licence; pickup-before-request check hard at 5%;
+R2 bucket and repo secrets in place
 (the bucket secret may be named `R2_BUCKET` or `R2_BUCKET_NAME`, the workflows accept
 either).
 
 Still open:
 
-- Whether the pickup-before-request timestamp check stays a hard failure at 2% (see
-  "Phase 1 on real data" above).
 - Control group for the congestion-pricing design, treatment of December 2024 anticipation,
   airport trips, and the fare measure given surcharge pass-through.
 - Benchmark estimates to compare against.

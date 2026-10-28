@@ -41,6 +41,7 @@ def _sql_params(settings: Settings, month: str) -> dict[str, str | int | float]:
         "max_wait_seconds": v.max_wait_seconds,
         "max_trip_hours": v.max_trip_hours,
         "max_flagged_share": v.max_flagged_share,
+        "max_pickup_before_request_share": v.max_pickup_before_request_share,
         "fare_p999_min": v.fare_p999_min,
         "fare_p999_max": v.fare_p999_max,
         "pay_p999_min": v.pay_p999_min,
