@@ -1,0 +1,30 @@
+name: review-check
+
+# On a candidate PR (branch candidate/YYYY-MM), fail unless reviews/YYYY-MM.md exists and
+# every field is filled in. This is the CI side of the human review gate: the PR cannot be
+# merged with an unfilled review record.
+
+on:
+  pull_request:
+    branches: ["main"]
+
+permissions:
+  contents: read
+
+jobs:
+  review-record:
+    if: startsWith(github.head_ref, 'candidate/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --frozen
+      - name: Check the review record
+        run: |
+          MONTH="${GITHUB_HEAD_REF#candidate/}"
+          echo "candidate month: $MONTH"
+          uv run roundtrip release check --month "$MONTH"
