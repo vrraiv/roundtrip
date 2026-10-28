@@ -31,6 +31,15 @@ jobs:
           enable-cache: true
       - run: uv sync --frozen
       - run: uv run roundtrip release check --month "${{ inputs.month }}"
+      - name: Check the Cloudflare token before asking for approval
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then echo "CLOUDFLARE_API_TOKEN secret is empty"; exit 1; fi
+          export CLOUDFLARE_ACCOUNT_ID=$(uv run python -c "from roundtrip.config import get_settings; print(get_settings().r2.account_id or '')")
+          echo "account id: ${#CLOUDFLARE_ACCOUNT_ID} chars"
+          npx --yes wrangler@3 pages project list             || { echo "The token cannot list Pages projects. It needs 'Cloudflare Pages: Edit' on this account."; exit 1; }
 
   release:
     needs: gate

@@ -266,4 +266,21 @@ def test_build_report_and_site(repo_settings: Settings, tmp_path: Path) -> None:
     assert (site / "index.html").exists()
     assert (site / "congestion_pricing.html").exists()
     assert any(p.name == "index.html" for p in written)
-    assert "<table>" in (site / "congestion_pricing.html").read_text(encoding="utf-8")
+    page = (site / "congestion_pricing.html").read_text(encoding="utf-8")
+    assert "<table>" in page
+    assert "Not yet reviewed" in page
+
+
+def test_site_banner_shows_approval(repo_settings: Settings, tmp_path: Path) -> None:
+    bundle = _bundle(tmp_path / "est" / "estimates.json")
+    path = release.prepare(repo_settings, "2025-06", bundle)
+    _fill(path, decision="approve with notes")
+    release.approve(repo_settings, "2025-06", bundle)
+    out = tmp_path / "REPORTS"
+    build_report(repo_settings, bundle, None, out_dir=out)
+    site = tmp_path / "site"
+    build_site(out, site, repo_settings.releases_dir)
+    page = (site / "index.html").read_text(encoding="utf-8")
+    assert "Reviewed release 2025-06" in page
+    assert "Approved by VR on 2026-01-02" in page
+    assert "Not yet reviewed" not in page
