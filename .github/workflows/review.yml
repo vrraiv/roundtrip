@@ -26,8 +26,10 @@ concurrency:
 
 jobs:
   record:
+    # The form sets the `review` label; the title check covers a repo where that label is
+    # missing (GitHub then drops it silently).
     if: >
-      contains(github.event.issue.labels.*.name, 'review') &&
+      (contains(github.event.issue.labels.*.name, 'review') || startsWith(github.event.issue.title, 'Review ')) &&
       (github.event.issue.user.login == github.repository_owner ||
        contains(format(',{0},', vars.REVIEWERS), format(',{0},', github.event.issue.user.login)))
     runs-on: ubuntu-latest
