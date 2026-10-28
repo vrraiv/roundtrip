@@ -37,9 +37,9 @@ def test_process_month_rejects_bad_month(settings: Settings) -> None:
 
 
 def test_phase_2_commands_say_so(settings: Settings) -> None:
-    result = runner.invoke(app, ["report"])
+    result = runner.invoke(app, ["train"])
     assert result.exit_code == 3
-    assert "phase 2" in result.output
+    assert "phase 3" in result.output
 
 
 def test_run_causal_without_panel_fails_clearly(settings: Settings) -> None:

@@ -97,20 +97,27 @@ def placebo_table(bundle: dict[str, Any]) -> str:
     if not rows:
         return "_no placebo rows_"
     lines = [
-        "| Kind | Control group | n | Mean estimate | Share with p < 0.05 |",
-        "|---|---|---|---|---|",
+        "| Kind | Outcome | Control group | n | Mean estimate | Largest abs | Share p < 0.05 |",
+        "|---|---|---|---|---|---|---|",
     ]
+    outcomes = list(dict.fromkeys(r.get("outcome", "?") for r in rows))
     for kind in ("fake_date", "fake_zones"):
-        for g in sorted({r["control_group"] for r in rows}):
-            sub = [r for r in rows if r["kind"] == kind and r["control_group"] == g]
-            if not sub:
-                continue
-            mean = sum(r["estimate"] for r in sub) / len(sub)
-            sig = sum(r["p"] < 0.05 for r in sub) / len(sub)
-            lines.append(
-                f"| {kind.replace('_', ' ')} | {g.replace('_', ' ')} | {len(sub)} | "
-                f"{mean:+.3f} | {100 * sig:.0f}% |"
-            )
+        for o in outcomes:
+            for g in sorted({r["control_group"] for r in rows}):
+                sub = [
+                    r
+                    for r in rows
+                    if r["kind"] == kind and r["control_group"] == g and r.get("outcome") == o
+                ]
+                if not sub:
+                    continue
+                mean = sum(r["estimate"] for r in sub) / len(sub)
+                big = max(abs(r["estimate"]) for r in sub)
+                sig = sum(r["p"] < 0.05 for r in sub) / len(sub)
+                lines.append(
+                    f"| {kind.replace('_', ' ')} | {_label(o)} | {g.replace('_', ' ')} | "
+                    f"{len(sub)} | {mean:+.3f} | {big:.3f} | {100 * sig:.0f}% |"
+                )
     return "\n".join(lines)
 
 

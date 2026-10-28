@@ -210,6 +210,9 @@ class Settings(BaseSettings):
         dt.date(2024, 9, 1),
     )
     bootstrap_reps: int = 1000
+    # The comparisons evaluate the first year after treatment, so the prior-year design
+    # never compares a treated day with another treated day.
+    post_window_days: int = 364
     bootstrap_seed: int = 20250105
 
     # --- compute ------------------------------------------------------------------------

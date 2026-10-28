@@ -54,7 +54,8 @@ def _windows(settings: Settings, data_end: dt.date) -> dict[str, tuple[dt.date, 
     if data_end >= settings.anticipation_start:
         out["anticipation"] = (settings.anticipation_start, min(ant_end, data_end))
     if data_end >= settings.treatment_date:
-        out["post"] = (settings.treatment_date, data_end)
+        post_end = settings.treatment_date + dt.timedelta(days=settings.post_window_days - 1)
+        out["post"] = (settings.treatment_date, min(post_end, data_end))
     return out
 
 

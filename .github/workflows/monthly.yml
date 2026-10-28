@@ -1,9 +1,10 @@
 name: monthly
 
 # Detect newly published TLC months, process each one (validate, build panel and
-# sample), mirror derived outputs to R2, and open a candidate PR carrying the
-# validation report and manifest. Nothing is published from a candidate PR until the
-# release gate (phase 2) approves it. Hard validation failures open an issue.
+# sample), mirror derived outputs to R2, re-run the analyses on the full panel, build
+# the candidate report and review record, and open a candidate PR. Nothing is published
+# from a candidate PR until the review gate (publish.yml, GitHub `release` environment)
+# approves it. Hard validation failures open an issue.
 
 on:
   schedule:
@@ -13,6 +14,10 @@ on:
       max_months:
         description: "Process at most this many new months"
         default: "2"
+      force_analysis:
+        description: "Run the analyses and open a candidate PR even if no new month"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -126,47 +131,102 @@ jobs:
           } > issue_body.md
           gh issue create --title "validation failed: ${{ matrix.month }}"             --label data-quality --body-file issue_body.md
 
-  candidate:
+  analyze:
     needs: [discover, process]
-    if: always() && needs.discover.outputs.any == 'true' && needs.process.result == 'success'
+    if: >
+      always() && env.R2_BUCKET != '' &&
+      ((needs.discover.outputs.any == 'true' && needs.process.result == 'success') ||
+       inputs.force_analysis == true)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      month: ${{ steps.report.outputs.month }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --frozen
+      - name: Pull panel, zones, validation reports and manifest from R2
+        run: |
+          uv run roundtrip sync --prefix manifest.json
+          uv run roundtrip sync --prefix zones/
+          uv run roundtrip sync --prefix validation/
+          uv run roundtrip sync --prefix panel/
+      - name: Run causal analyses
+        run: |
+          /usr/bin/time -v uv run roundtrip run-causal --out data/derived/estimates/latest 2> time.log
+          STATUS=$?
+          grep -E "Maximum resident set size|Elapsed \(wall clock\)" time.log || true
+          exit $STATUS
+      - name: Build report and review record
+        id: report
+        run: |
+          uv run roundtrip report --bundle data/derived/estimates/latest/estimates.json
+          MONTH=$(uv run python -c "import json; print(json.load(open('REPORTS/estimates.json'))['months'][-1])")
+          echo "month=$MONTH" >> "$GITHUB_OUTPUT"
+          uv run roundtrip release prepare --month "$MONTH" --bundle REPORTS/estimates.json
+          mkdir -p validation
+          cp data/derived/validation/*.md data/derived/validation/*.json validation/ 2>/dev/null || true
+          cp data/derived/manifest.json manifest.json
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Analysis"
+            echo
+            uv run roundtrip estimates-summary data/derived/estimates/latest/estimates.json 2>/dev/null || echo "_no estimates bundle_"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: candidate
+          path: |
+            REPORTS/
+            reviews/${{ steps.report.outputs.month }}.md
+            validation/
+            manifest.json
+          retention-days: 90
+          if-no-files-found: warn
+
+  candidate:
+    needs: [discover, analyze]
+    if: always() && needs.analyze.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          pattern: derived-*
-          path: artifacts
-      - name: Copy validation reports and manifest into the repo
-        id: copy
+          name: candidate
+          path: .
+      - name: Write the PR body
+        id: body
         run: |
-          mkdir -p validation
-          LAST=""
-          for d in $(ls -d artifacts/derived-* | sort); do
-            cp "$d"/validation/*.md validation/ 2>/dev/null || true
-            cp "$d"/validation/*.json validation/ 2>/dev/null || true
-            cp "$d"/manifest.json manifest.json
-            LAST=$(basename "$d" | sed 's/derived-//')
-          done
-          echo "month=$LAST" >> "$GITHUB_OUTPUT"
+          MONTH="${{ needs.analyze.outputs.month }}"
+          echo "month=$MONTH" >> "$GITHUB_OUTPUT"
           {
-            echo "## Candidate: $LAST"
+            echo "## Candidate: $MONTH"
             echo
-            echo "Months processed: ${{ needs.discover.outputs.months }}"
+            echo "New months processed this run: ${{ needs.discover.outputs.months }}"
             echo
-            for m in $(echo '${{ needs.discover.outputs.months }}' | tr -d '[]",' ); do
-              cat "validation/$m.md"; echo
-            done
+            echo "Files: \`REPORTS/congestion_pricing.md\` (report and review dashboard), \`reviews/$MONTH.md\` (fill in before approval), \`validation/\`, \`manifest.json\`."
             echo
-            echo "_Phase 1 candidate: validation report and manifest only. Reports, estimate diffs and the review record arrive in phase 2._"
+            sed -n '/## Review dashboard/,$p' REPORTS/congestion_pricing.md
+            echo
+            echo "To approve: fill in \`reviews/$MONTH.md\`, merge, then run \`gh workflow run publish.yml -f month=$MONTH\` and approve the \`release\` environment."
+            echo "To reject: \`uv run roundtrip release reject --month $MONTH --reason '...'\` on main and push."
           } > pr_body.md
       - uses: peter-evans/create-pull-request@v7
         with:
-          branch: candidate/${{ steps.copy.outputs.month }}
-          title: "candidate: ${{ steps.copy.outputs.month }}"
-          commit-message: "candidate ${{ steps.copy.outputs.month }}: validation report and manifest"
+          branch: candidate/${{ steps.body.outputs.month }}
+          title: "candidate: ${{ steps.body.outputs.month }}"
+          commit-message: "candidate ${{ steps.body.outputs.month }}: report, review record, validation, manifest"
           body-path: pr_body.md
           labels: candidate
           add-paths: |
+            REPORTS/
+            reviews/
             validation/
             manifest.json

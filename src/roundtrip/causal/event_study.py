@@ -225,6 +225,7 @@ def placebo_dates(
         out.append(
             {
                 "kind": "fake_date",
+                "outcome": outcome,
                 "date": fake.isoformat(),
                 "control_group": control_group,
                 **c.to_dict(),
@@ -259,6 +260,7 @@ def placebo_zones(
         out.append(
             {
                 "kind": "fake_zones",
+                "outcome": outcome,
                 "draw": i,
                 "control_group": control_group,
                 "n_fake": k,

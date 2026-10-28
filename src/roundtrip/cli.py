@@ -273,21 +273,99 @@ def score() -> None:
 
 
 @app.command()
-def report() -> None:
-    """Build REPORTS/*.md and figures from run outputs (phase 2)."""
-    _not_yet("report", 2)
+def report(
+    bundle: Annotated[
+        Path | None,
+        typer.Option("--bundle", help="estimates.json to report on (default: newest run)."),
+    ] = None,
+    out: Annotated[
+        Path | None, typer.Option("--out", help="Report directory (default REPORTS/).")
+    ] = None,
+) -> None:
+    """Build REPORTS/congestion_pricing.md and figures from an estimates bundle, with the
+    review dashboard diffed against the last approved release."""
+    from roundtrip.release import last_approved_bundle
+    from roundtrip.report.build import build_report
+
+    s = _settings()
+    if bundle is None:
+        runs = sorted(s.estimates_dir.glob("*/estimates.json"))
+        if not runs:
+            typer.echo("no estimates bundle found; run `roundtrip run-causal` first", err=True)
+            raise typer.Exit(code=1)
+        bundle = runs[-1]
+    path = build_report(s, bundle, last_approved_bundle(s), out_dir=out)
+    typer.echo(str(path))
+
+
+@app.command("build-site")
+def build_site_cmd(
+    out: Annotated[Path, typer.Option("--out", help="Output directory.")] = Path("site"),
+) -> None:
+    """Render REPORTS/*.md to a static HTML site for Cloudflare Pages."""
+    from roundtrip.report.site import build_site
+
+    for p in build_site(_settings().reports_dir, out):
+        typer.echo(str(p))
+
+
+BundleOpt = Annotated[
+    Path | None, typer.Option("--bundle", help="estimates.json of the candidate run.")
+]
 
 
 @release_app.command("prepare")
-def release_prepare() -> None:
-    """Create reviews/YYYY-MM.md from the template (phase 2)."""
-    _not_yet("release prepare", 2)
+def release_prepare(
+    month: MonthArg,
+    bundle: BundleOpt = None,
+    force: Annotated[bool, typer.Option("--force", help="Overwrite an existing record.")] = False,
+) -> None:
+    """Create reviews/YYYY-MM.md from the template for the reviewer to fill in."""
+    from roundtrip import release
+
+    typer.echo(str(release.prepare(_settings(), month, bundle, force=force)))
+
+
+@release_app.command("check")
+def release_check(month: MonthArg) -> None:
+    """Fail unless reviews/YYYY-MM.md exists and every field is filled in (CI check)."""
+    from roundtrip import release
+
+    problems = release.check(release.review_path(_settings(), month))
+    if problems:
+        for p in problems:
+            typer.echo(f"review record: {p}", err=True)
+        raise typer.Exit(code=1)
+    typer.echo(f"review record for {month} is complete")
+
+
+@release_app.command("approve")
+def release_approve(month: MonthArg, bundle: BundleOpt = None) -> None:
+    """Record an approval in releases/index.json and keep the approved bundle."""
+    from roundtrip import release
+
+    s = _settings()
+    b = bundle or s.reports_dir / "estimates.json"
+    try:
+        entry = release.approve(s, month, b)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(json.dumps(entry, indent=2))
 
 
 @release_app.command("reject")
-def release_reject() -> None:
-    """Close the candidate PR and record the reason (phase 2)."""
-    _not_yet("release reject", 2)
+def release_reject(
+    month: MonthArg,
+    reason: Annotated[str, typer.Option("--reason", help="Why the candidate was rejected.")],
+    bundle: BundleOpt = None,
+    no_close: Annotated[bool, typer.Option("--no-close", help="Do not close the PR.")] = False,
+) -> None:
+    """Record a rejection with its reason and close the candidate PR."""
+    from roundtrip import release
+
+    entry = release.reject(_settings(), month, reason, bundle, close_pr=not no_close)
+    typer.echo(json.dumps(entry, indent=2))
 
 
 if __name__ == "__main__":  # pragma: no cover
