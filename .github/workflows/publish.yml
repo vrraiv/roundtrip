@@ -42,6 +42,10 @@ jobs:
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
         run: |
           if [ -z "$CLOUDFLARE_API_TOKEN" ]; then echo "CLOUDFLARE_API_TOKEN secret is empty"; exit 1; fi
+          echo "token: ${#CLOUDFLARE_API_TOKEN} chars"
+          # Cloudflare says whether the token itself is valid, before wrangler tries to use it.
+          curl -sS https://api.cloudflare.com/client/v4/user/tokens/verify \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" | head -c 600; echo
           export CLOUDFLARE_ACCOUNT_ID=$(uv run python -c "from roundtrip.config import get_settings; print(get_settings().r2.account_id or '')")
           echo "account id: ${#CLOUDFLARE_ACCOUNT_ID} chars"
           npx --yes wrangler@3 pages project list             || { echo "The token cannot list Pages projects. It needs 'Cloudflare Pages: Edit' on this account."; exit 1; }
