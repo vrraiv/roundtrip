@@ -1,0 +1,90 @@
+name: Review a candidate release
+description: Approve or reject a candidate run. Submitting writes reviews/YYYY-MM.md for you.
+title: "Review YYYY-MM"
+labels: [review]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Read the candidate report first (the candidate PR links the preview site). Each answer
+        below goes into `reviews/<month>.md` under the heading of the same name. On submit, the
+        `review` workflow writes the record, checks it, merges the candidate PR if one is open,
+        and starts `publish.yml`, which then waits for your tap in the `release` environment.
+        A rejection records the reason and closes the candidate PR.
+  - type: input
+    id: month
+    attributes:
+      label: Month
+      description: Candidate month, YYYY-MM.
+      placeholder: "2026-08"
+    validations:
+      required: true
+  - type: input
+    id: run_id
+    attributes:
+      label: Run id
+      description: From the candidate PR or the report header. The record is refused if it names a different run than the candidate.
+      placeholder: "20261028T032834Z"
+    validations:
+      required: true
+  - type: dropdown
+    id: decision
+    attributes:
+      label: Decision
+      options:
+        - approve
+        - approve with notes
+        - reject
+    validations:
+      required: true
+  - type: dropdown
+    id: data_checks
+    attributes:
+      label: Data checks acknowledged
+      description: You have looked at the validation table and any soft warnings.
+      options:
+        - "yes"
+        - "no"
+    validations:
+      required: true
+  - type: textarea
+    id: estimate_changes
+    attributes:
+      label: Estimate changes versus last approved release
+      description: Plausible? Refer to the "What changed" table in the report.
+      placeholder: first release
+    validations:
+      required: true
+  - type: dropdown
+    id: placebos
+    attributes:
+      label: Placebo results acceptable
+      options:
+        - "yes"
+        - "no"
+    validations:
+      required: true
+  - type: dropdown
+    id: drift
+    attributes:
+      label: Model drift decision
+      description: n/a before phase 3.
+      options:
+        - n/a
+        - keep
+        - retrain
+        - investigate
+    validations:
+      required: true
+  - type: textarea
+    id: known_issues
+    attributes:
+      label: Known issues
+      description: Shown on the public site as the reviewer's notes. Write "none" if there are none.
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Anything else for the record. Why the placebos are or are not acceptable, what to investigate, the reason for a rejection.

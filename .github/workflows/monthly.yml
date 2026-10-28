@@ -195,28 +195,68 @@ jobs:
     if: always() && needs.analyze.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           name: candidate
           path: .
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --frozen
+
+      # A preview of the public site for the reviewer to read on a phone. Pages preview
+      # deployments are free; the production site only changes through publish.yml.
+      - name: Build the candidate site
+        run: uv run roundtrip build-site --out site
+      - name: Cloudflare account id
+        id: cf
+        if: env.CLOUDFLARE_API_TOKEN != ''
+        run: |
+          ID=$(uv run python -c "from roundtrip.config import get_settings; print(get_settings().r2.account_id or '')")
+          echo "account_id=$ID" >> "$GITHUB_OUTPUT"
+      - name: Create Pages project if needed
+        if: env.CLOUDFLARE_API_TOKEN != ''
+        continue-on-error: true
+        run: npx --yes wrangler@3 pages project create roundtrip --production-branch main
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ steps.cf.outputs.account_id }}
+      - name: Deploy the preview
+        id: preview
+        if: env.CLOUDFLARE_API_TOKEN != ''
+        continue-on-error: true
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ steps.cf.outputs.account_id }}
+          command: pages deploy site --project-name=roundtrip --branch=candidate-${{ needs.analyze.outputs.month }}
+
       - name: Write the PR body
         id: body
+        env:
+          PREVIEW: ${{ steps.preview.outputs.deployment-url }}
         run: |
           MONTH="${{ needs.analyze.outputs.month }}"
           echo "month=$MONTH" >> "$GITHUB_OUTPUT"
+          RUN_ID=$(uv run python -c "import json; print(json.load(open('REPORTS/estimates.json'))['run_id'])")
+          REVIEW_URL="${{ github.server_url }}/${{ github.repository }}/issues/new?template=review.yml&title=Review+$MONTH&month=$MONTH&run_id=$RUN_ID"
           {
-            echo "## Candidate: $MONTH"
+            echo "## Candidate: $MONTH (run \`$RUN_ID\`)"
             echo
             echo "New months processed this run: ${{ needs.discover.outputs.months }}"
             echo
-            echo "Files: \`REPORTS/congestion_pricing.md\` (report and review dashboard), \`reviews/$MONTH.md\` (fill in before approval), \`validation/\`, \`manifest.json\`."
+            if [ -n "$PREVIEW" ]; then echo "**Preview site:** $PREVIEW"; echo; fi
+            echo "**To review from any device:** [open the review form]($REVIEW_URL) (month and run id are filled in), answer it, submit. The \`review\` workflow writes \`reviews/$MONTH.md\`, merges this PR on approval and starts \`publish.yml\`, which waits for your tap in the \`release\` environment. A rejection closes this PR with your reason."
+            echo
+            echo "Files: \`REPORTS/congestion_pricing.md\` (report and review dashboard), \`reviews/$MONTH.md\` (the record; filled in by the form, or by hand), \`validation/\`, \`manifest.json\`."
             echo
             sed -n '/## Review dashboard/,$p' REPORTS/congestion_pricing.md
             echo
-            echo "To approve: fill in \`reviews/$MONTH.md\`, merge, then run \`gh workflow run publish.yml -f month=$MONTH\` and approve the \`release\` environment."
-            echo "To reject: \`uv run roundtrip release reject --month $MONTH --reason '...'\` on main and push."
+            echo "By hand instead: fill in \`reviews/$MONTH.md\`, merge, then run \`gh workflow run publish.yml -f month=$MONTH\` and approve the \`release\` environment; or \`uv run roundtrip release reject --month $MONTH --reason '...'\` on main and push."
           } > pr_body.md
       - uses: peter-evans/create-pull-request@v7
         with:

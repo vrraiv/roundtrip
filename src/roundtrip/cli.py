@@ -355,6 +355,45 @@ def release_approve(month: MonthArg, bundle: BundleOpt = None) -> None:
     typer.echo(json.dumps(entry, indent=2))
 
 
+@release_app.command("from-issue")
+def release_from_issue(
+    body_file: Annotated[
+        Path, typer.Option("--body-file", help="Body of the submitted review issue form.")
+    ],
+    reviewer: Annotated[str, typer.Option("--reviewer", help="GitHub login of the reviewer.")],
+    date: Annotated[str, typer.Option("--date", help="Review date, YYYY-MM-DD.")],
+    bundle: BundleOpt = None,
+) -> None:
+    """Write reviews/YYYY-MM.md from a review issue form, check it, and print what it says.
+
+    Prints JSON (month, run_id, decision, reason, path, problems). Exits 1 if the form names
+    a different run than the candidate bundle or the record is incomplete.
+    """
+    from roundtrip import release
+
+    s = _settings()
+    fields = release.parse_form(body_file.read_text(encoding="utf-8"))
+    try:
+        path, problems = release.from_form(
+            s, fields, reviewer, date, bundle or s.reports_dir / "estimates.json"
+        )
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from exc
+    out = {
+        "month": fields.get("Month", "").strip(),
+        "run_id": fields.get("Run id", "").strip(),
+        "decision": release.decision_of(release.parse(path)),
+        "reason": fields.get("Notes", "").strip() or fields.get("Known issues", "").strip(),
+        "path": str(path),
+        "problems": problems,
+    }
+    typer.echo(json.dumps(out, indent=2))
+    if problems:
+        typer.echo("review record incomplete: " + "; ".join(problems), err=True)
+        raise typer.Exit(code=1)
+
+
 @release_app.command("reject")
 def release_reject(
     month: MonthArg,

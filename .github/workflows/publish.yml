@@ -14,9 +14,14 @@ on:
       month:
         description: "Candidate month being released (YYYY-MM); its reviews/YYYY-MM.md must be complete"
         required: true
+      issue:
+        description: "Review issue number that started this (set by review.yml); it is told the outcome and closed"
+        required: false
+        default: ""
 
 permissions:
   contents: write
+  issues: write
 
 jobs:
   gate:
@@ -47,6 +52,8 @@ jobs:
     timeout-minutes: 15
     environment:
       name: release
+      url: ${{ steps.deploy.outputs.deployment-url }}
+    outputs:
       url: ${{ steps.deploy.outputs.deployment-url }}
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -97,3 +104,24 @@ jobs:
           git add releases/
           git commit -m "release ${{ inputs.month }}: approved and published" || echo "nothing to commit"
           git push
+
+  notify:
+    # Tell the review issue (if one started this run) how it ended, and close it on success.
+    needs: [gate, release]
+    if: always() && inputs.issue != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Comment and close
+        run: |
+          RUN="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          if [ "${{ needs.release.result }}" = "success" ]; then
+            gh issue comment "${{ inputs.issue }}" --repo "${{ github.repository }}" \
+              --body "Published ${{ inputs.month }}: ${{ needs.release.outputs.url }} (run $RUN). Approval recorded in releases/index.json."
+            gh issue close "${{ inputs.issue }}" --repo "${{ github.repository }}" --reason completed
+          else
+            gh issue comment "${{ inputs.issue }}" --repo "${{ github.repository }}" \
+              --body "Publish did not complete (gate: ${{ needs.gate.result }}, release: ${{ needs.release.result }}). See $RUN. Nothing was published; edit the issue to resubmit, or rerun publish.yml."
+          fi

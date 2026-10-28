@@ -1,0 +1,135 @@
+name: review
+
+# The phone-friendly review gate. The reviewer submits the "Review a candidate release"
+# issue form (.github/ISSUE_TEMPLATE/review.yml); this workflow turns it into
+# reviews/YYYY-MM.md, checks it the same way as review-check.yml, and then:
+#   approve: commits the record to the candidate branch (if its PR is still open) or to
+#            main, merges the PR, and starts publish.yml, which waits for the reviewer's
+#            approval in the `release` environment before deploying.
+#   reject:  records the reason in releases/index.json on main and closes the PR.
+# The record is refused if the form names a different run than the candidate, so a review
+# of one run can never approve another. Only listed reviewers count: the repository owner,
+# or the logins in the REVIEWERS repository variable (comma-separated).
+
+on:
+  issues:
+    types: [opened, edited]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: write
+
+concurrency:
+  group: review-${{ github.event.issue.number }}
+
+jobs:
+  record:
+    if: >
+      contains(github.event.issue.labels.*.name, 'review') &&
+      (github.event.issue.user.login == github.repository_owner ||
+       contains(format(',{0},', vars.REVIEWERS), format(',{0},', github.event.issue.user.login)))
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      ISSUE: ${{ github.event.issue.number }}
+      REVIEWER: ${{ github.event.issue.user.login }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - run: uv sync --frozen
+
+      - name: Read the form
+        id: form
+        env:
+          BODY: ${{ github.event.issue.body }}
+          CREATED: ${{ github.event.issue.created_at }}
+        run: |
+          printf '%s\n' "$BODY" > /tmp/issue_body.md
+          MONTH=$(uv run python -c "from roundtrip.release import parse_form; print(parse_form(open('/tmp/issue_body.md', encoding='utf-8').read()).get('Month', '').strip())")
+          echo "month=$MONTH" >> "$GITHUB_OUTPUT"
+          echo "date=${CREATED:0:10}" >> "$GITHUB_OUTPUT"
+          PR=$(gh pr list --head "candidate/$MONTH" --state open --json number -q '.[0].number')
+          echo "pr=$PR" >> "$GITHUB_OUTPUT"
+          echo "month $MONTH, open candidate PR: ${PR:-none}"
+
+      - name: Check out the candidate branch if its PR is open
+        if: steps.form.outputs.pr != ''
+        run: git checkout "candidate/${{ steps.form.outputs.month }}"
+
+      - name: Write and check the review record
+        id: record
+        run: |
+          cp REPORTS/estimates.json /tmp/candidate_estimates.json
+          set +e
+          uv run roundtrip release from-issue --body-file /tmp/issue_body.md \
+            --reviewer "$REVIEWER" --date "${{ steps.form.outputs.date }}" \
+            --bundle REPORTS/estimates.json > /tmp/record.json 2> /tmp/record.err
+          STATUS=$?
+          set -e
+          cat /tmp/record.json /tmp/record.err
+          if [ $STATUS -ne 0 ]; then
+            { echo "The review could not be recorded:"; echo; echo '```'; cat /tmp/record.err; echo '```'; } > /tmp/comment.md
+            exit 1
+          fi
+          echo "decision=$(jq -r .decision /tmp/record.json)" >> "$GITHUB_OUTPUT"
+          echo "reason=$(jq -r .reason /tmp/record.json | head -c 500 | tr '\n' ' ')" >> "$GITHUB_OUTPUT"
+
+      - name: Commit the record
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add reviews/
+          git commit -m "review ${{ steps.form.outputs.month }}: ${{ steps.record.outputs.decision }} by @$REVIEWER (issue #$ISSUE)" || echo "record unchanged"
+          git push
+
+      - name: Approve. Merge the candidate PR
+        if: startsWith(steps.record.outputs.decision, 'approve') && steps.form.outputs.pr != ''
+        run: gh pr merge "${{ steps.form.outputs.pr }}" --merge --delete-branch
+
+      - name: Approve. Start the publish workflow
+        if: startsWith(steps.record.outputs.decision, 'approve')
+        run: |
+          gh workflow run publish.yml --ref main -f month="${{ steps.form.outputs.month }}" -f issue="$ISSUE"
+          {
+            echo "Recorded: **${{ steps.record.outputs.decision }}** for ${{ steps.form.outputs.month }} by @$REVIEWER."
+            echo
+            echo "One more tap: publish.yml is waiting for your approval in the \`release\` environment."
+            echo "Open the run from ${{ github.server_url }}/${{ github.repository }}/actions/workflows/publish.yml,"
+            echo "choose Review deployments, tick release, Approve. This issue closes when the site is live."
+          } > /tmp/comment.md
+          gh issue comment "$ISSUE" --body-file /tmp/comment.md
+
+      - name: Reject. Record the reason and close the candidate PR
+        if: steps.record.outputs.decision == 'reject'
+        env:
+          REASON: ${{ steps.record.outputs.reason }}
+        run: |
+          MONTH="${{ steps.form.outputs.month }}"
+          if [ -n "${{ steps.form.outputs.pr }}" ]; then
+            git checkout main
+            git checkout "candidate/$MONTH" -- "reviews/$MONTH.md"
+          fi
+          uv run roundtrip release reject --month "$MONTH" --reason "${REASON:-rejected by reviewer}" --bundle /tmp/candidate_estimates.json
+          git add reviews/ releases/
+          git commit -m "release $MONTH: rejected by @$REVIEWER (issue #$ISSUE)"
+          git push
+          echo "Recorded: **rejected** for $MONTH by @$REVIEWER. The candidate PR is closed and the reason is in \`releases/index.json\`." > /tmp/comment.md
+          gh issue comment "$ISSUE" --body-file /tmp/comment.md
+          gh issue close "$ISSUE" --reason completed
+
+      - name: Report a failure on the issue
+        if: failure()
+        run: |
+          [ -s /tmp/comment.md ] || echo "The review workflow failed before recording anything." > /tmp/comment.md
+          echo >> /tmp/comment.md
+          echo "Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}. Edit the issue to resubmit." >> /tmp/comment.md
+          gh issue comment "$ISSUE" --body-file /tmp/comment.md
