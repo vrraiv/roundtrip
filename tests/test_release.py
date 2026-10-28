@@ -237,6 +237,16 @@ def test_approve_records_and_copies_bundle(repo_settings: Settings, tmp_path: Pa
     assert len(release.load_index(repo_settings)["approved"]) == 1
 
 
+def test_approve_refuses_a_different_run(repo_settings: Settings, tmp_path: Path) -> None:
+    reviewed = _bundle(tmp_path / "est" / "estimates.json", run_id="r1")
+    path = release.prepare(repo_settings, "2025-06", reviewed)
+    _fill(path)
+    newer = _bundle(tmp_path / "est2" / "estimates.json", run_id="r2")
+    with pytest.raises(ValueError, match="review record is for run r1"):
+        release.approve(repo_settings, "2025-06", newer)
+    assert release.load_index(repo_settings)["approved"] == []
+
+
 def test_reject_records_reason(repo_settings: Settings, tmp_path: Path) -> None:
     bundle = _bundle(tmp_path / "est" / "estimates.json")
     release.prepare(repo_settings, "2025-06", bundle)
