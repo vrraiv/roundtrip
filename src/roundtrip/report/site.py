@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import html
+import json
 import shutil
 from pathlib import Path
+from typing import Any
 
 import markdown
 
@@ -40,9 +42,42 @@ def _title(md_text: str, fallback: str) -> str:
     return fallback
 
 
-def build_site(reports_dir: Path, out_dir: Path) -> list[Path]:
-    """Render every ``*.md`` in ``reports_dir`` to ``out_dir`` and copy figures."""
+def latest_approval(releases_dir: Path | None) -> dict[str, Any] | None:
+    if releases_dir is None:
+        return None
+    p = releases_dir / "index.json"
+    if not p.exists():
+        return None
+    approved = json.loads(p.read_text(encoding="utf-8")).get("approved", [])
+    if not approved:
+        return None
+    entry: dict[str, Any] = max(approved, key=lambda e: str(e.get("month", "")))
+    return entry
+
+
+def approval_banner(entry: dict[str, Any] | None) -> str:
+    """Markdown placed above every page: who approved which run, and their notes."""
+    if entry is None:
+        return (
+            "> **Not yet reviewed.** These estimates are a candidate and have not been "
+            "approved by the reviewer.\n\n"
+        )
+    text = (
+        f"> **Reviewed release {entry['month']}.** Approved by {entry['reviewer']} on "
+        f"{entry['date']} ({entry['status']}); run `{entry['run_id']}`, git "
+        f"`{entry['git_sha']}`, data through {entry['data_end']}."
+    )
+    notes = str(entry.get("notes") or "").strip()
+    if notes:
+        text += f"\n>\n> Reviewer's notes: {notes}"
+    return text + "\n\n"
+
+
+def build_site(reports_dir: Path, out_dir: Path, releases_dir: Path | None = None) -> list[Path]:
+    """Render every ``*.md`` in ``reports_dir`` to ``out_dir`` and copy figures, with an
+    approval banner from ``releases_dir/index.json`` on every page."""
     out_dir.mkdir(parents=True, exist_ok=True)
+    banner = approval_banner(latest_approval(releases_dir))
     pages = sorted(reports_dir.glob("*.md"))
     nav = " ".join(
         f'<a href="{p.stem}.html">{html.escape(_title(p.read_text(encoding="utf-8"), p.stem))}</a>'
@@ -51,7 +86,7 @@ def build_site(reports_dir: Path, out_dir: Path) -> list[Path]:
     written: list[Path] = []
     for p in pages:
         text = p.read_text(encoding="utf-8")
-        body = markdown.markdown(text, extensions=["tables", "fenced_code"])
+        body = markdown.markdown(banner + text, extensions=["tables", "fenced_code"])
         page = PAGE.format(title=html.escape(_title(text, p.stem)), css=CSS, nav=nav, body=body)
         dest = out_dir / f"{p.stem}.html"
         dest.write_text(page, encoding="utf-8")

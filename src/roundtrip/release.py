@@ -124,6 +124,12 @@ def parse(path: Path) -> dict[str, str]:
     return sections
 
 
+def reviewed_run_id(path: Path) -> str | None:
+    """The run id named in the record's header ("Candidate run `<id>`")."""
+    m = re.search(r"Candidate run `([^`]+)`", path.read_text(encoding="utf-8"))
+    return m.group(1) if m else None
+
+
 def decision_of(sections: dict[str, str]) -> str | None:
     body = sections.get("Decision", "").lower()
     found = [d for d in DECISIONS if re.search(rf"\b{re.escape(d)}\b", body)]
@@ -211,6 +217,14 @@ def approve(settings: Settings, month: str, bundle_path: Path) -> dict[str, Any]
     problems = check(path)
     if problems:
         msg = "review record incomplete: " + "; ".join(problems)
+        raise ValueError(msg)
+    reviewed = reviewed_run_id(path)
+    bundled = _bundle_ids(bundle_path)["run_id"]
+    if reviewed is not None and reviewed != bundled:
+        msg = (
+            f"review record is for run {reviewed} but the bundle is run {bundled}; "
+            "approve only the run that was reviewed"
+        )
         raise ValueError(msg)
     sections = parse(path)
     decision = decision_of(sections)

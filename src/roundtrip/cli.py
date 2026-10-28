@@ -305,7 +305,8 @@ def build_site_cmd(
     """Render REPORTS/*.md to a static HTML site for Cloudflare Pages."""
     from roundtrip.report.site import build_site
 
-    for p in build_site(_settings().reports_dir, out):
+    s = _settings()
+    for p in build_site(s.reports_dir, out, s.releases_dir):
         typer.echo(str(p))
 
 

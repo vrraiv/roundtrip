@@ -1,8 +1,8 @@
 # Review record: {month}
 
 Candidate run `{run_id}` (git `{git_sha}`, manifest `{manifest_hash}`), data through
-{data_end}. Report: `REPORTS/congestion_pricing.md`. Fill every field below; any line that
-still contains `_fill_` fails the CI check on the candidate PR.
+{data_end}. Report: `REPORTS/congestion_pricing.md`. Replace every placeholder in the
+sections below; a section still holding one fails the CI check on the candidate PR.
 
 ## Data checks acknowledged
 
