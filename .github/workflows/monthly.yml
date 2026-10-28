@@ -38,6 +38,8 @@ jobs:
     outputs:
       months: ${{ steps.discover.outputs.months }}
       any: ${{ steps.discover.outputs.any }}
+      # job-level `if` cannot read env or secrets, so the bucket check is passed as an output
+      has_bucket: ${{ steps.discover.outputs.has_bucket }}
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
@@ -59,6 +61,7 @@ jobs:
           MONTHS=$(echo "$OUT" | uv run python -c "import json,sys; d=json.load(sys.stdin); print(json.dumps(d['new'][:int('$LIMIT')]))")
           echo "months=$MONTHS" >> "$GITHUB_OUTPUT"
           if [ "$MONTHS" = "[]" ]; then echo "any=false" >> "$GITHUB_OUTPUT"; else echo "any=true" >> "$GITHUB_OUTPUT"; fi
+          if [ -n "$R2_BUCKET" ]; then echo "has_bucket=true" >> "$GITHUB_OUTPUT"; else echo "has_bucket=false" >> "$GITHUB_OUTPUT"; fi
           echo "$OUT" | uv run python -c "import json,sys; d=json.load(sys.stdin); print('revised months needing --force:', d['revised'])"
 
   process:
@@ -134,7 +137,7 @@ jobs:
   analyze:
     needs: [discover, process]
     if: >
-      always() && env.R2_BUCKET != '' &&
+      always() && needs.discover.outputs.has_bucket == 'true' &&
       ((needs.discover.outputs.any == 'true' && needs.process.result == 'success') ||
        inputs.force_analysis == true)
     runs-on: ubuntu-latest
