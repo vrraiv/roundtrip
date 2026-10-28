@@ -36,9 +36,7 @@ def comparison_table(bundle: dict[str, Any], window: str = "post") -> str:
     rows = [e for e in bundle["estimates"] if e["window"] == window and e["adjusted"]]
     outcomes = list(dict.fromkeys(e["outcome"] for e in rows))
     designs = [
-        d
-        for d in bundle["design"]["comparison_designs"]
-        if any(e["design"] == d for e in rows)
+        d for d in bundle["design"]["comparison_designs"] if any(e["design"] == d for e in rows)
     ]
     head = "| Outcome | " + " | ".join(DESIGN_LABELS.get(d, d) for d in designs) + " |"
     lines = [head, "|---|" + "---|" * len(designs)]
@@ -122,8 +120,7 @@ def bundle_summary(bundle: dict[str, Any]) -> str:
         f"**Run** `{bundle['run_id']}` on data {bundle['data_start']} to {bundle['data_end']} "
         f"({len(bundle['months'])} months, git `{sha}`, {bundle['elapsed_seconds']} s).",
         "",
-        "### Post-period effects on the CBD, % of counterfactual "
-        "(donor-adjusted; 95% intervals)",
+        "### Post-period effects on the CBD, % of counterfactual (donor-adjusted; 95% intervals)",
         "",
         comparison_table(bundle, "post"),
     ]
