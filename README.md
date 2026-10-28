@@ -70,8 +70,8 @@ peak RSS and wall time per month to the job summary.
 
 ## Data
 
-- **TLC HVFHV trip records**, monthly parquet, 2023-01 onward by default
-  (`ROUNDTRIP_START_MONTH`; owner to confirm). Fields: request, on-scene, pickup and dropoff
+- **TLC HVFHV trip records**, monthly parquet, 2023-01 onward (confirmed by the owner;
+  `ROUNDTRIP_START_MONTH`). Fields: request, on-scene, pickup and dropoff
   times; pickup and dropoff zone; miles and time; base fare, tolls, surcharges, tips, driver
   pay; shared and accessible-vehicle flags; dispatching base.
 - **TLC taxi zone lookup** (265 zones with borough).
@@ -138,11 +138,16 @@ tests/           synthetic month generator + 45 tests (schema, checks, panel, pi
 See [METHODS.md](METHODS.md) for how the code was produced and validated, including the use
 of a coding agent.
 
-## Owner decisions still open
+## Owner decisions
 
-- Data start month (default 2023-01; must be no later than 2024-01 for a full pre-period).
-- R2 bucket, API token and the five repo secrets; $5 billing alert in Cloudflare.
+Settled: data start month 2023-01; MIT licence; R2 bucket and repo secrets in place
+(the bucket secret may be named `R2_BUCKET` or `R2_BUCKET_NAME`, the workflows accept
+either).
+
+Still open:
+
+- Whether the pickup-before-request timestamp check stays a hard failure at 2% (see
+  "Phase 1 on real data" above).
 - Control group for the congestion-pricing design, treatment of December 2024 anticipation,
   airport trips, and the fare measure given surcharge pass-through.
 - Benchmark estimates to compare against.
-- Licence for the repository.

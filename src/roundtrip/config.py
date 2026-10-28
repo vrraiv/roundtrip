@@ -105,7 +105,7 @@ class Settings(BaseSettings):
     # (``trip-data/fhvhv_tripdata_YYYY-MM.parquet``) is accepted for tests and offline runs.
     tlc_base_url: str = "https://d37ci6vzurychx.cloudfront.net"
     dataset: str = "fhvhv"
-    start_month: str = "2023-01"  # OWNER DECISION: default per brief; confirm before phase 2
+    start_month: str = "2023-01"  # confirmed by the owner 2026-10-27
     end_month: str | None = None  # None = discover up to the current month
 
     # --- study design -------------------------------------------------------------------
