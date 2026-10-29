@@ -224,6 +224,22 @@ class Settings(BaseSettings):
     # A model "passes" if its mean gap over the hold-out year, and over its last quarter,
     # is within this many percent (about the size of the 2023 test-window gaps).
     oos_drift_tolerance_pct: float = 3.0
+    # Rolling-origin validation, the selection rule for the trips design (owner decision,
+    # 28 Oct 2026): train from oos_train_start through each origin, score the untreated
+    # days 1 to 3, 4 to 6 and 7 to 12 months ahead (cut at the day before the anticipation
+    # window), and pass a design only if its mean gap across origins is within the
+    # tolerance at every horizon. RMSPE breaks ties.
+    rolling_origins: tuple[dt.date, ...] = (
+        dt.date(2023, 6, 30),
+        dt.date(2023, 9, 30),
+        dt.date(2023, 12, 31),
+        dt.date(2024, 3, 31),
+        dt.date(2024, 6, 30),
+        dt.date(2024, 9, 30),
+    )
+    rolling_horizons_months: tuple[tuple[int, int], ...] = ((1, 3), (4, 6), (7, 12))
+    rolling_bias_tolerance_pct: float = 2.0
+    rolling_min_days: int = 28
     # Prior-year design run on an untreated window (Jan to 13 Nov 2024 vs 2023): it should
     # find nothing if the design is sound.
     prior_year_placebo_start: dt.date = dt.date(2024, 1, 5)

@@ -128,11 +128,10 @@ def _synth_diag(bundle: dict[str, Any]) -> str:
 
 
 OOS_LABELS = {
-    "intercept": "intercept",
-    "sdid": "synthetic DiD",
-    "anchored": "anchored (last 90 days)",
     "simplex": "simplex weights (current design)",
     "ridge": "ridge regression",
+    "anchored": "anchored (last 90 days)",
+    "growth": "growth-rate (weekly log changes)",
 }
 
 
@@ -205,6 +204,82 @@ def _oos_section(bundle: dict[str, Any]) -> str:
     figs = "\n\n".join(
         f"![Out-of-sample forecasts: {OUTCOME_LABELS.get(o, o)}](figures/synth_oos_{o}.png)"
         for o in oos
+    )
+    return "\n".join(lines) + "\n\n" + figs
+
+
+def _rolling_section(bundle: dict[str, Any]) -> str:
+    rolling = bundle.get("synth_rolling") or {}
+    if not rolling:
+        return "_Rolling-origin validation not available (needs data through November 2024)._"
+    first = next(iter(rolling.values()))
+    labels = list(first["horizons"])
+    tol = first["tolerance_pct"]
+    origins = first["origins"]
+    lines = [
+        f"Each model is trained from {first['train_start']} through each of {len(origins)} "
+        f"origins ({origins[0]} to {origins[-1]}, the end of each quarter) and scored on the "
+        "untreated days 1 to 3, 4 to 6 and 7 to 12 months ahead, cut at "
+        f"{first['end']}. The cells are the mean gap across origins (actual minus forecast, "
+        f"% of forecast) with the number of origins scored; a model passes if that mean is "
+        f"within {tol:g} points at every horizon, and RMSPE breaks ties. Placebo share is "
+        "the share of donor zones whose own gap at the same origin and horizon is at least "
+        "as large as the CBD's, averaged over origins. This is the selection rule for the "
+        "trips design (owner decision, 28 October 2026); waits and fares are shown for "
+        "comparison and keep their designs.",
+        "",
+        "| Outcome | Model | "
+        + " | ".join(f"{lab.replace('-', ' to ')} months" for lab in labels)
+        + " | RMSPE | Placebo share | Passes |",
+        "|---|---|" + "---|" * len(labels) + "---|---|---|",
+    ]
+    for o, b in rolling.items():
+        for m, s in b["summary"].items():
+            cells = []
+            for lab in labels:
+                h = s["horizons"].get(lab, {})
+                if not h.get("n_origins"):
+                    cells.append("n/a")
+                else:
+                    mark = "" if h["within"] else " !"
+                    cells.append(f"{_fmt(h['bias_pct'])}% ({h['n_origins']}){mark}")
+            ranks = [h["rank_p"] for h in s["horizons"].values() if h.get("n_origins")]
+            rank = f"{sum(ranks) / len(ranks):.2f}" if ranks else "n/a"
+            lines.append(
+                f"| {OUTCOME_LABELS.get(o, o)} | {OOS_LABELS.get(m, m)} | "
+                + " | ".join(cells)
+                + f" | {s['rmspe_pct']:.1f}% | {rank} | {'yes' if s['passes'] else 'no'} |"
+            )
+    lines.append("")
+    for o, b in rolling.items():
+        label = OUTCOME_LABELS.get(o, o)
+        if b["selected"]:
+            names = ", ".join(OOS_LABELS.get(m, m) for m in b["ranking"])
+            lines.append(
+                f"- **{label}**: within {tol:g} points at every horizon: {names} (in order of "
+                f"RMSPE). Selected: {OOS_LABELS.get(b['selected'], b['selected'])}."
+            )
+        else:
+            worst = {
+                m: max(
+                    (abs(h["bias_pct"]) for h in s["horizons"].values() if h.get("n_origins")),
+                    default=float("nan"),
+                )
+                for m, s in b["summary"].items()
+            }
+            best = min(worst, key=lambda m: worst[m])
+            lines.append(
+                f"- **{label}**: no model is within {tol:g} points at every horizon; the "
+                f"closest is {OOS_LABELS.get(best, best)} (largest mean gap "
+                f"{worst[best]:.1f} points)."
+            )
+    lines.append(
+        f"\nScoring windows containing Christmas: {first['holiday_windows']} (the protocol "
+        "asks for at least two, so the holiday artefact counts against a design)."
+    )
+    figs = "\n\n".join(
+        f"![Rolling-origin validation: {OUTCOME_LABELS.get(o, o)}](figures/synth_rolling_{o}.png)"
+        for o in rolling
     )
     return "\n".join(lines) + "\n\n" + figs
 
@@ -386,6 +461,10 @@ Effects on the CBD as a percent of the counterfactual, donor-adjusted, 95% inter
 Requested in the review of the 2026-08 release.
 
 {_oos_section(bundle)}
+
+### Rolling-origin validation of the trips design
+
+{_rolling_section(bundle)}
 
 ### Prior-year design on an untreated year
 

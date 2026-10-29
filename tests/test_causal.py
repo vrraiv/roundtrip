@@ -252,6 +252,11 @@ def test_run_causal_end_to_end(sim_settings: Settings, tmp_path: Path) -> None:
     assert set(sv) == set(forecast_models())
     for m, r in sv.items():
         assert abs(r["windows"]["post"]["mean_gap_pct"] - 100 * TRUE_TRIP_EFFECT) < 4, m
+    sr = bundle["synth_rolling"]["n_trips"]
+    assert set(sr["summary"]) == set(forecast_models())
+    assert sr["summary"]["simplex"]["passes"] and sr["selected"] is not None
+    assert sr["origins"] == [d.isoformat() for d in sim_settings.rolling_origins]
+    assert (out / "figures" / "synth_rolling_n_trips.png").exists()
     py = [e for e in bundle["prior_year_placebo"] if e["outcome"] == "n_trips" and e["adjusted"]]
     assert abs(py[0]["effect_pct"]) < 2
     assert (out / "figures" / "synth_oos_n_trips.png").exists()
