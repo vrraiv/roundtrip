@@ -74,6 +74,30 @@ How agent-written code is validated:
 - **The 2023 test.** The same design is fitted to 13 November 2023 and evaluated over
   14 November 2023 to 4 January 2024, when nothing happened. Its gap is reported next to
   the real one and bounds what the design can resolve.
+- **Out-of-sample test.** Requested in the review of the 2026-08 release: each
+  counterfactual model is trained on 1 January to 13 November 2023 only and forecasts the
+  untreated year that follows with its parameters frozen. The simplex and a ridge
+  regression decide the drift verdict (within 3% over the year and its last quarter);
+  the report marks the trips finding as drift-contaminated when neither passes.
+- **Change-point test.** The log share of the CBD in the donor pool over the pre-policy
+  period, and each forecast gap, is tested for a single mean shift against a constant,
+  a line and a step plus trend (BIC; Quandt sup-F compared with every donor as a
+  placebo). Run on 28 October 2026 it found a step in the week of 18 December 2023 and
+  no trend, which is why no trend term enters the design.
+- **Candidate trips designs.** Beside the simplex and ridge: *anchored* (the simplex
+  weights plus the mean gap over the last 90 training days, a difference-in-differences
+  on the synthetic control) and *growth-rate* (simplex weights fitted on week-over-week
+  changes in log trips, the counterfactual a weighted geometric index of the donors
+  pinned to the CBD's last-90-day log level). A free intercept and synthetic
+  difference-in-differences were tried and dropped: the first reproduced the simplex,
+  the second rested on ten effective days of time weights.
+- **Rolling-origin validation.** The selection rule for the trips design (owner decision,
+  28 October 2026). Every candidate is trained from 1 January 2023 through the end of each
+  quarter from June 2023 to September 2024 and scored on untreated days 1 to 3, 4 to 6 and
+  7 to 12 months ahead, cut at 13 November 2024. Every donor is refitted as treated at
+  every origin for the placebo share. A design passes only if its mean gap across origins
+  is within 2 points at every horizon; RMSPE breaks ties. The table is in the report
+  whatever the outcome. Waits and fares keep the simplex design.
 - **Comparisons.** Prior-year and pre-window estimates divide the CBD's change by the
   donor pool's change (a difference-in-differences in logs). Intervals are 7-day block
   bootstraps (1000 replications, fixed seed). The post window is the first 364 days after

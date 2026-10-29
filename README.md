@@ -193,7 +193,7 @@ REPORTS/         candidate report, figures and the estimates bundle it was built
 pages/           hand-written site pages (method.md), reviewed like code
 reviews/         TEMPLATE.md and one record per candidate month
 releases/        index.json (approved and rejected runs) and approved bundles
-tests/           synthetic month generator, simulated causal panel; 64 tests
+tests/           synthetic month generator, simulated causal panel; 71 tests
 .github/workflows/
   ci.yml           ruff, mypy --strict, pytest on every PR
   backfill.yml     process a range of months, one job per month, with profiling

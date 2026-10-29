@@ -71,9 +71,8 @@ def synth_plot(fit: SynthFit, test_fit: SynthFit | None, settings: Settings, pat
 OOS_COLORS = {
     "simplex": "#d1495b",
     "ridge": "#6a994e",
-    "intercept": "#e0a100",
-    "sdid": "#6f4fa0",
     "anchored": "#1b7f79",
+    "growth": "#e0a100",
 }
 
 
@@ -127,6 +126,47 @@ def oos_plot(fits: dict[str, Any], settings: Settings, path: Path) -> None:
     )
     bx.set_title(f"Monthly forecast gap, actual vs forecast, % (band = +/-{tol:g}%)", fontsize=10)
     ax.legend(loc="upper left", fontsize=8, frameon=False, ncol=2)
+    fig.tight_layout()
+    fig.savefig(path, dpi=130)
+    plt.close(fig)
+
+
+def rolling_plot(block: dict[str, Any], outcome: str, path: Path) -> None:
+    """Mean forecast gap by horizon: one small marker per origin, a bar at the mean across
+    origins (the bias the selection rule tests), one colour per model."""
+    models = list(block["summary"])
+    labels = list(block["horizons"])
+    tol = block["tolerance_pct"]
+    fig, ax = plt.subplots(figsize=(10, 4.2))
+    width = 0.8 / max(1, len(models))
+    for i, m in enumerate(models):
+        color = OOS_COLORS.get(m, "grey")
+        for j, lab in enumerate(labels):
+            x = j + (i - (len(models) - 1) / 2) * width
+            gaps = [
+                e["horizons"][lab]["mean_gap_pct"]
+                for e in block["fits"][m].values()
+                if "horizons" in e and lab in e["horizons"]
+            ]
+            if not gaps:
+                continue
+            ax.scatter([x] * len(gaps), gaps, color=color, s=14, alpha=0.6, zorder=3)
+            mean = sum(gaps) / len(gaps)
+            ax.plot([x - width * 0.4, x + width * 0.4], [mean, mean], color=color, lw=2.5, zorder=4)
+        ax.plot([], [], color=color, lw=2.5, label=m)
+    ax.axhspan(-tol, tol, color="black", alpha=0.06, lw=0)
+    ax.axhline(0, color="black", lw=0.6)
+    ax.set_xticks(range(len(labels)))
+    ax.set_xticklabels([f"{lab.replace('-', ' to ')} months ahead" for lab in labels])
+    ax.set_ylabel("mean gap, % of forecast")
+    ax.set_title(
+        f"{OUTCOME_LABELS.get(outcome, outcome)}: rolling-origin validation, origins "
+        f"{block['origins'][0]} to {block['origins'][-1]} (dots) and their mean (bars); "
+        f"band = +/-{tol:g} points",
+        fontsize=10,
+    )
+    ax.legend(loc="lower left", fontsize=8, frameon=False, ncol=len(models))
+    ax.grid(alpha=0.3, axis="y")
     fig.tight_layout()
     fig.savefig(path, dpi=130)
     plt.close(fig)

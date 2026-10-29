@@ -15,31 +15,31 @@ Two models, both trained on the same window and both using only same-day donor v
   and a ridge penalty. The penalty is chosen on the last eight weeks of the training
   window, never on held-out data.
 
-Two variants added for the redesign (owner, 2026-10-28), reported but not part of the
-drift verdict until adopted:
-
-- ``intercept``: non-negative weights with a free intercept and no sum-to-one constraint
-  (Doudchenko and Imbens 2016), on donor-scaled series. The intercept absorbs a level
-  difference; the weights match the variation.
-- ``sdid``: synthetic difference-in-differences (Arkhangelsky et al. 2021): simplex unit
-  weights with an intercept and a ridge penalty, plus simplex time weights over the
-  training days chosen so that the donors' time-weighted training mean matches their mean
-  over the target window. The counterfactual is anchored on the treated unit's
-  time-weighted training level, so a level shift late in training is carried forward
-  rather than averaged away.
+Two candidate designs for the redesign (owner decisions of 2026-10-28), reported beside
+the two above but not part of the drift verdict until adopted:
 
 - ``anchored``: the simplex weights with an intercept equal to the mean gap over the
   last ``ANCHOR_DAYS`` of training (a difference-in-differences on the synthetic
   control). This is the level-break correction made explicit: a shift in the CBD's
-  level before the end of training is carried forward. With daily data and seasonal
-  donors the SDID time weights spread over the whole training window, so ``sdid``
-  behaves like ``simplex`` with an intercept; ``anchored`` is the recent-level design.
+  level before the end of training is carried forward.
+- ``growth``: growth-rate synthetic control. Simplex weights fitted on week-over-week
+  changes in log trips, so the donors are chosen for their dynamics and the level is
+  free; the counterfactual is a weighted geometric index of the donors pinned to the
+  CBD's mean log level over the last ``ANCHOR_DAYS`` of training.
 
-A plain simplex-with-intercept on mean-scaled series was tried earlier and dropped: every
-series has training mean one, so the intercept is zero and the weights are ``simplex``.
+Two more were run through the 2023 hold-out on 28 October 2026 and dropped: a simplex
+with a free intercept and no sum constraint (Doudchenko and Imbens 2016) reproduced the
+simplex to the second decimal, and synthetic difference-in-differences (Arkhangelsky et
+al. 2021) rested on time weights with ten effective days out of 317. A plain intercept on
+mean-scaled series is zero by construction.
 
 ``change_point`` tests a daily series (a forecast gap, or the log share of the CBD in the
 donor pool) for a single mean shift against a constant and a straight trend.
+
+``rolling_origin`` is the selection rule for the trips design: train through each of
+several origins, score the untreated days 1 to 3, 4 to 6 and 7 to 12 months ahead, and
+pass a design only if its mean gap across origins is within tolerance at every horizon.
+With one origin any estimator can be tuned to pass; with six it has to forecast.
 """
 
 from __future__ import annotations
@@ -50,76 +50,32 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-from scipy.optimize import nnls
 
-from roundtrip.causal.synth import SUM_TO_ONE_PENALTY, fit_weights
+from roundtrip.causal.synth import fit_weights
 
-MODELS: tuple[str, ...] = ("simplex", "ridge", "intercept", "sdid", "anchored")
+MODELS: tuple[str, ...] = ("simplex", "ridge", "anchored", "growth")
 ANCHOR_DAYS = 90
+GROWTH_LAG_DAYS = 7
 # models whose hold-out result decides the drift verdict (the others are reported)
 VERDICT_MODELS: tuple[str, ...] = ("simplex", "ridge")
-LAMBDA_RIDGE = 1e-3
 RIDGE_ALPHAS: tuple[float, ...] = (0.01, 0.1, 1.0, 10.0, 100.0, 1000.0)
 VALIDATION_DAYS = 56
 
 
-def _nnls_intercept(a: np.ndarray, b: np.ndarray) -> tuple[np.ndarray, float]:
-    """NNLS on ``a`` with a free intercept (two columns, +1 and -1). Returns the
-    non-negative coefficients and the intercept."""
-    n, k = a.shape
-    aug = np.hstack([a, np.ones((n, 1)), -np.ones((n, 1))])
-    sol, _ = nnls(aug, b, maxiter=50 * (k + 2))
-    return sol[:k], float(sol[k] - sol[k + 1])
-
-
-def _intercept(y: np.ndarray, x: np.ndarray) -> tuple[float, np.ndarray]:
-    """Non-negative weights, free intercept, no sum constraint."""
-    w, a = _nnls_intercept(x, y)
+def _growth(
+    y_tr: np.ndarray, x_tr: np.ndarray, train_days: pd.DatetimeIndex
+) -> tuple[float, np.ndarray]:
+    """Simplex weights on ``GROWTH_LAG_DAYS``-day changes in logs (pairs of days a lag
+    apart, so a missing day drops the pair rather than shifting it), and the log level
+    offset over the last ``ANCHOR_DAYS`` of training."""
+    logs = pd.DataFrame(np.column_stack([np.log(y_tr), np.log(x_tr)]), index=train_days)
+    lagged = logs.shift(GROWTH_LAG_DAYS, freq="D").reindex(logs.index)
+    d = (logs - lagged).dropna().to_numpy()
+    w = fit_weights(d[:, 0], d[:, 1:])
+    n_late = min(ANCHOR_DAYS, len(logs))
+    tail = logs.to_numpy()[-n_late:]
+    a = float(np.mean(tail[:, 0] - tail[:, 1:] @ w))
     return a, w
-
-
-def _sdid(
-    y_tr: np.ndarray, x_tr: np.ndarray, x_target: np.ndarray
-) -> tuple[float, np.ndarray, np.ndarray]:
-    """Synthetic difference-in-differences weights on scaled series.
-
-    Unit weights: simplex with intercept and ridge penalty zeta^2 T_pre, zeta as in
-    Arkhangelsky et al. (2021). Time weights: simplex over training days with intercept
-    and a small ridge, matching the donors' target-window mean. Returns the intercept
-    that anchors the counterfactual on the time-weighted treated level, the unit weights
-    and the time weights."""
-    t_pre, k = x_tr.shape
-    n_post = max(1, len(x_target))
-    sigma = float(np.std(np.diff(x_tr, axis=0))) or 1e-6
-    zeta = (k * n_post) ** 0.25 * sigma
-    pen = np.sqrt(SUM_TO_ONE_PENALTY * t_pre)
-    a_unit = np.vstack(
-        [
-            np.hstack([x_tr, np.ones((t_pre, 1)), -np.ones((t_pre, 1))]),
-            np.hstack([np.sqrt(zeta**2 * t_pre) * np.eye(k), np.zeros((k, 2))]),
-            np.hstack([pen * np.ones((1, k)), np.zeros((1, 2))]),
-        ]
-    )
-    b_unit = np.concatenate([y_tr, np.zeros(k), [pen]])
-    sol, _ = nnls(a_unit, b_unit, maxiter=50 * (k + 2))
-    w = sol[:k]
-    w = w / w.sum() if w.sum() > 0 else np.full(k, 1.0 / k)
-
-    xbar_post = x_target.mean(axis=0)
-    pen_t = np.sqrt(SUM_TO_ONE_PENALTY * k)
-    a_time = np.vstack(
-        [
-            np.hstack([x_tr.T, np.ones((k, 1)), -np.ones((k, 1))]),
-            np.hstack([np.sqrt(LAMBDA_RIDGE) * np.eye(t_pre), np.zeros((t_pre, 2))]),
-            np.hstack([pen_t * np.ones((1, t_pre)), np.zeros((1, 2))]),
-        ]
-    )
-    b_time = np.concatenate([xbar_post, np.zeros(t_pre), [pen_t]])
-    sol_t, _ = nnls(a_time, b_time, maxiter=50 * (t_pre + 2))
-    lam = sol_t[:t_pre]
-    lam = lam / lam.sum() if lam.sum() > 0 else np.full(t_pre, 1.0 / t_pre)
-    intercept = float(lam @ y_tr - (lam @ x_tr) @ w)
-    return intercept, w, lam
 
 
 def _ridge(y: np.ndarray, x: np.ndarray, alpha: float) -> tuple[float, np.ndarray]:
@@ -195,10 +151,9 @@ def fit_forecast(
     donors: pd.DataFrame,
     train_start: dt.date,
     train_end: dt.date,
-    target: tuple[dt.date, dt.date] | None = None,
 ) -> Forecast:
-    """``target`` is the window the forecast is for; only ``sdid`` uses it (for its time
-    weights). It defaults to everything after the training window."""
+    """Fit ``model`` on the training window and forecast every usable day of ``treated``
+    with its parameters frozen."""
     idx = treated.index
     donors = donors.reindex(idx)
     usable = donors.notna().all(axis=1).to_numpy() & treated.notna().to_numpy()
@@ -233,31 +188,16 @@ def fit_forecast(
         params["weights"] = {
             str(c): float(v) for c, v in zip(donors.columns, w, strict=True) if v > 0.005
         }
-    elif model == "intercept":
-        a, w = _intercept(ys, xs)
-        pred = (a + (x_all / scale_x) @ w) * scale_y
-        params["intercept_pct"] = 100 * a
-        params["weight_sum"] = float(w.sum())
-        params["weights"] = {
-            str(c): float(v) for c, v in zip(donors.columns, w, strict=True) if v > 0.005
-        }
-    elif model == "sdid":
-        if target is None:
-            tmask = np.asarray(idx > pd.Timestamp(train_end)) & usable
-        else:
-            tmask = (
-                np.asarray((idx >= pd.Timestamp(target[0])) & (idx <= pd.Timestamp(target[1])))
-                & usable
-            )
-        if tmask.sum() == 0:
-            tmask = np.asarray(idx > pd.Timestamp(train_end)) & usable
-        a, w, lam = _sdid(ys, xs, x_all[tmask] / scale_x)
-        pred = (a + (x_all / scale_x) @ w) * scale_y
-        train_days = pd.DatetimeIndex(idx[train])
-        mean_pos = float(lam @ np.arange(len(lam)))
-        params["intercept_pct"] = 100 * a
-        params["lambda_effective_days"] = float(1.0 / np.sum(lam**2))
-        params["lambda_mean_day"] = train_days[round(mean_pos)].strftime("%Y-%m-%d")
+    elif model == "growth":
+        if (y_tr <= 0).any() or (x_tr <= 0).any():
+            msg = f"{model}/{outcome}: non-positive values in the training window"
+            raise ValueError(msg)
+        a, w = _growth(y_tr, x_tr, pd.DatetimeIndex(idx[train]))
+        positive = (x_all > 0).all(axis=1)
+        pred = np.full(len(idx), np.nan)
+        pred[positive] = np.exp(a + np.log(x_all[positive]) @ w)
+        params["level_ratio"] = float(np.exp(a))
+        params["anchor_days"] = min(ANCHOR_DAYS, int(train.sum()))
         params["weights"] = {
             str(c): float(v) for c, v in zip(donors.columns, w, strict=True) if v > 0.005
         }
@@ -299,13 +239,7 @@ def placebo_gaps(
     for z in donors.columns:
         try:
             f = fit_forecast(
-                model,
-                outcome,
-                donors[z],
-                donors.drop(columns=[z]),
-                train_start,
-                train_end,
-                target=(start, end),
+                model, outcome, donors[z], donors.drop(columns=[z]), train_start, train_end
             )
         except (ValueError, np.linalg.LinAlgError):
             continue
@@ -334,7 +268,7 @@ def evaluate(
     fits: dict[str, Forecast] = {}
     hs, he = windows[placebo_window]
     for model in MODELS:
-        f = fit_forecast(model, outcome, treated, donors, train_start, train_end, target=(hs, he))
+        f = fit_forecast(model, outcome, treated, donors, train_start, train_end)
         fits[model] = f
         res: dict[str, Any] = {
             "params": f.params,
@@ -379,6 +313,144 @@ def drift_verdict(block: dict[str, Any], tolerance_pct: float) -> dict[str, Any]
 def verdict_passes(verdict: dict[str, Any]) -> bool:
     """True if any model that counts stays within tolerance."""
     return any(v.get("passes") for v in verdict.values() if v.get("counts", True))
+
+
+# --- rolling-origin validation --------------------------------------------------------
+
+
+def horizon_window(
+    origin: dt.date, months: tuple[int, int], end: dt.date
+) -> tuple[dt.date, dt.date] | None:
+    """Calendar days from ``months[0]`` to ``months[1]`` months after ``origin``, cut at
+    ``end`` (the last untreated day). None when nothing is left."""
+    base = pd.Timestamp(origin) + pd.Timedelta(days=1)
+    s = (base + pd.DateOffset(months=months[0] - 1)).date()
+    e = min((base + pd.DateOffset(months=months[1]) - pd.Timedelta(days=1)).date(), end)
+    return (s, e) if e >= s else None
+
+
+def _horizon_label(months: tuple[int, int]) -> str:
+    return f"{months[0]}-{months[1]}"
+
+
+def rolling_origin(
+    outcome: str,
+    treated: pd.Series,
+    donors: pd.DataFrame,
+    train_start: dt.date,
+    origins: tuple[dt.date, ...],
+    horizons: tuple[tuple[int, int], ...],
+    end: dt.date,
+    min_days: int,
+    tolerance_pct: float,
+    models: tuple[str, ...] = MODELS,
+) -> dict[str, Any]:
+    """Rolling-origin validation of every model.
+
+    For each origin, train from ``train_start`` through the origin and score the forecast
+    over each horizon (months ahead of the origin, cut at ``end``); windows shorter than
+    ``min_days`` are skipped. Every donor is refitted as treated at every origin, so each
+    scored window carries the share of donors whose own gap is at least as large as the
+    treated unit's. A model passes if the mean gap across origins is within
+    ``tolerance_pct`` at every horizon; among the passers the lowest mean RMSPE is
+    ``selected``."""
+    labels = [_horizon_label(h) for h in horizons]
+    block: dict[str, Any] = {
+        "train_start": train_start.isoformat(),
+        "end": end.isoformat(),
+        "origins": [o.isoformat() for o in origins],
+        "horizons": {lab: list(h) for lab, h in zip(labels, horizons, strict=True)},
+        "tolerance_pct": tolerance_pct,
+        "min_days": min_days,
+        "fits": {m: {} for m in models},
+        "summary": {},
+    }
+    windows: dict[dt.date, dict[str, tuple[dt.date, dt.date]]] = {}
+    for o in origins:
+        windows[o] = {}
+        for lab, h in zip(labels, horizons, strict=True):
+            win = horizon_window(o, h, end)
+            if win is not None and (win[1] - win[0]).days + 1 >= min_days:
+                windows[o][lab] = win
+    block["holiday_windows"] = sum(
+        s <= dt.date(s.year, 12, 25) <= e for ws in windows.values() for (s, e) in ws.values()
+    )
+
+    for model in models:
+        for o in origins:
+            if not windows[o]:
+                continue
+            try:
+                f = fit_forecast(model, outcome, treated, donors, train_start, o)
+            except (ValueError, np.linalg.LinAlgError) as exc:
+                block["fits"][model][o.isoformat()] = {"error": str(exc)}
+                continue
+            placebo: dict[str, list[float]] = {lab: [] for lab in windows[o]}
+            for z in donors.columns:
+                try:
+                    pf = fit_forecast(
+                        model, outcome, donors[z], donors.drop(columns=[z]), train_start, o
+                    )
+                except (ValueError, np.linalg.LinAlgError):
+                    continue
+                for lab, (s, e) in windows[o].items():
+                    g = pf.window(s, e)["mean_gap_pct"]
+                    if np.isfinite(g):
+                        placebo[lab].append(abs(g))
+            entry: dict[str, Any] = {
+                "train_rmspe_pct": f.window(train_start, o)["rmspe_pct"],
+                "params": {k: v for k, v in f.params.items() if k != "weights"},
+                "horizons": {},
+            }
+            for lab, (s, e) in windows[o].items():
+                w = f.window(s, e)
+                pg = np.asarray(placebo[lab])
+                entry["horizons"][lab] = {
+                    "window": [s.isoformat(), e.isoformat()],
+                    "n_days": w["n_days"],
+                    "mean_gap_pct": w["mean_gap_pct"],
+                    "rmspe_pct": w["rmspe_pct"],
+                    "placebo_n": len(pg),
+                    "placebo_rank_p": float(
+                        (1 + (pg >= abs(w["mean_gap_pct"])).sum()) / (1 + len(pg))
+                    ),
+                }
+            block["fits"][model][o.isoformat()] = entry
+
+        summary: dict[str, Any] = {"horizons": {}}
+        all_rmspe: list[float] = []
+        for lab in labels:
+            rows = [
+                e["horizons"][lab]
+                for e in block["fits"][model].values()
+                if "horizons" in e and lab in e["horizons"]
+            ]
+            if not rows:
+                summary["horizons"][lab] = {"n_origins": 0}
+                continue
+            gaps = np.array([r["mean_gap_pct"] for r in rows])
+            rmspes = [r["rmspe_pct"] for r in rows]
+            all_rmspe += rmspes
+            summary["horizons"][lab] = {
+                "n_origins": len(rows),
+                "bias_pct": float(gaps.mean()),
+                "max_abs_gap_pct": float(np.abs(gaps).max()),
+                "rmspe_pct": float(np.mean(rmspes)),
+                "rank_p": float(np.mean([r["placebo_rank_p"] for r in rows])),
+                "within": bool(abs(gaps.mean()) <= tolerance_pct),
+            }
+        scored = [h for h in summary["horizons"].values() if h["n_origins"]]
+        summary["rmspe_pct"] = float(np.mean(all_rmspe)) if all_rmspe else float("nan")
+        summary["passes"] = bool(scored) and all(h["within"] for h in scored)
+        block["summary"][model] = summary
+
+    passing = sorted(
+        (m for m, s in block["summary"].items() if s["passes"]),
+        key=lambda m: block["summary"][m]["rmspe_pct"],
+    )
+    block["ranking"] = passing
+    block["selected"] = passing[0] if passing else None
+    return block
 
 
 # --- change-point test ----------------------------------------------------------------

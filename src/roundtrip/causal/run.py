@@ -205,11 +205,44 @@ def run_causal(settings: Settings, out_dir: Path | None = None, quick: bool = Fa
                 },
             )
 
+    # --- rolling-origin validation (owner decision 2, 2026-10-28) ----------------------
+    # The selection rule for the trips design: every model trained through each quarterly
+    # origin and scored 1 to 3, 4 to 6 and 7 to 12 months ahead on untreated days only.
+    synth_rolling: dict[str, Any] = {}
+    if data_end >= settings.oos_holdout_end:
+        for outcome in settings.synth_outcomes:
+            wide = _usable_donors(zone_series(day, outcome, groups.donors), data_start, data_end)
+            rblock = forecast.rolling_origin(
+                outcome,
+                cbd[outcome],
+                wide,
+                settings.oos_train_start,
+                settings.rolling_origins,
+                settings.rolling_horizons_months,
+                fit_end,
+                settings.rolling_min_days,
+                settings.rolling_bias_tolerance_pct,
+            )
+            synth_rolling[outcome] = rblock
+            figures.rolling_plot(rblock, outcome, fig_dir / f"synth_rolling_{outcome}.png")
+            log.info(
+                "rolling %s: bias by horizon %s; selected %s",
+                outcome,
+                {
+                    m: {
+                        h: round(v.get("bias_pct", float("nan")), 2)
+                        for h, v in s["horizons"].items()
+                    }
+                    for m, s in rblock["summary"].items()
+                },
+                rblock["selected"],
+            )
+
     # --- change-point tests and design variants (owner, 2026-10-28) --------------------
     # Is the CBD's loss of share a step or a trend? Test the log share of the CBD in the
     # donor pool over the pre-policy period, with every donor as a placebo, and the
-    # out-of-sample forecast gaps. Then fit the intercept and SDID variants on the full
-    # pre-policy window so their first-year estimates can be compared with the design's.
+    # out-of-sample forecast gaps. Then fit every candidate design on the full pre-policy
+    # window so its first-year estimate can be compared with the headline design's.
     break_tests: dict[str, Any] = {}
     synth_variants: dict[str, Any] = {}
 
@@ -413,6 +446,7 @@ def run_causal(settings: Settings, out_dir: Path | None = None, quick: bool = Fa
         "estimates": estimates,
         "synth": synth,
         "synth_oos": synth_oos,
+        "synth_rolling": synth_rolling,
         "break_tests": break_tests,
         "synth_variants": synth_variants,
         "prior_year_placebo": prior_year_placebo,
