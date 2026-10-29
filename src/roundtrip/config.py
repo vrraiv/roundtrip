@@ -192,6 +192,10 @@ class Settings(BaseSettings):
     # wait, mean base fare; donors = non-CBD Manhattan plus inner Brooklyn/Queens zones on
     # the East River, airports excluded; simplex weights fitted before the announcement.
     synth_outcomes: tuple[str, ...] = ("n_trips", "mean_wait_seconds", "mean_base_fare")
+    # Trips design (owner decision 13, 29 Oct 2026): the step-adjusted seasonally anchored
+    # synthetic control, the one design that passes the rolling-origin rule below; waits
+    # and fares keep the simplex (decision 8). Any name in causal.forecast.MODELS.
+    synth_trips_design: str = "seasonal_step"
     # Main event study reports three comparisons (owner, 2026-10-27): the same weeks one year
     # earlier, the synthetic control, and the pre-event window above.
     comparison_designs: tuple[str, ...] = ("prior_year", "synthetic_control", "pre_window")
@@ -240,10 +244,11 @@ class Settings(BaseSettings):
     rolling_horizons_months: tuple[tuple[int, int], ...] = ((1, 3), (4, 6), (7, 12))
     rolling_bias_tolerance_pct: float = 2.0
     rolling_min_days: int = 28
-    # The rolling-origin table is also read over the origins from this date on: the
-    # change-point test (28 October 2026) dated the CBD's level break to the week of
-    # 18 December 2023, and no origin before it can forecast through it. Reported
-    # beside the rule, not part of it.
+    # The CBD's level break, dated by the change-point test (28 October 2026). Part of
+    # the rule (owner decision 12, 29 Oct 2026): an origin counts only if this break is
+    # identifiable in its training window, a calendar month seen on both sides of it in
+    # different years, so from the March 2024 origin on. The table over every origin is
+    # reported beside the rule.
     rolling_break_week: dt.date = dt.date(2023, 12, 18)
     # Prior-year design run on an untreated window (Jan to 13 Nov 2024 vs 2023): it should
     # find nothing if the design is sound.

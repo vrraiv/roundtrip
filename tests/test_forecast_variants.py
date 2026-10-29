@@ -10,7 +10,13 @@ import pandas as pd
 
 from roundtrip.causal import forecast
 
-ORIGINS = (dt.date(2023, 6, 30), dt.date(2023, 9, 30), dt.date(2023, 12, 31))
+ORIGINS = (
+    dt.date(2023, 6, 30),
+    dt.date(2023, 9, 30),
+    dt.date(2023, 12, 31),
+    dt.date(2024, 3, 31),
+)
+BREAK = dt.date(2023, 12, 18)
 HORIZONS = ((1, 3), (4, 6))
 END = dt.date(2024, 5, 14)
 
@@ -122,6 +128,43 @@ def test_step_adjusted_seasonal_design_nets_out_an_identified_break() -> None:
     assert abs(g_adj) < 1.5, (g_plain, g_adj)
 
 
+def test_synth_fit_returns_the_step_design_in_the_synthetic_control_form() -> None:
+    from roundtrip.causal.synth import placebo_in_space
+
+    treated, donors = _panel(step_at=150, cycle=0.04)
+    start, end = dt.date(2023, 1, 1), dt.date(2024, 3, 31)
+    plain = forecast.synth_fit("simplex", "n_trips", treated, donors, start, end)
+    sf = forecast.synth_fit("seasonal_step", "n_trips", treated, donors, start, end)
+    assert plain.design == "simplex" and plain.params == {}
+    assert sf.design == "seasonal_step" and sf.params["step"]["applied"]
+    assert "weights" not in sf.params
+    assert len(sf.weights) == 6 and abs(sf.weights.sum() - 1) < 1e-6
+    assert sf.pre_rmspe < plain.pre_rmspe  # the fitted series carries the step
+    early = sf.evaluate("early", dt.date(2023, 1, 1), dt.date(2023, 4, 30))
+    assert abs(early["mean_gap_pct"]) < 1.5, early
+    post = sf.evaluate("post", dt.date(2024, 4, 1), dt.date(2024, 5, 14))
+    assert abs(post["mean_gap_pct"]) < 1.5, post
+    plac = placebo_in_space(
+        sf,
+        donors,
+        "post",
+        dt.date(2024, 4, 1),
+        dt.date(2024, 5, 14),
+        refit=forecast.synth_refit("seasonal_step"),
+    )
+    assert 0 < plac.p_value <= 1 and len(plac.donor_ratios) <= 6
+
+
+def test_break_identifiable_needs_a_month_on_both_sides() -> None:
+    s = dt.date(2023, 1, 1)
+    assert not forecast.break_identifiable(s, BREAK, dt.date(2023, 9, 30))  # before the break
+    assert not forecast.break_identifiable(s, BREAK, dt.date(2023, 12, 31))  # 14 days after
+    assert not forecast.break_identifiable(s, BREAK, dt.date(2024, 1, 19))  # 19 days of Jan
+    assert forecast.break_identifiable(s, BREAK, dt.date(2024, 1, 20))  # Jan 2024 vs Jan 2023
+    assert forecast.break_identifiable(s, BREAK, dt.date(2024, 3, 31))
+    assert not forecast.break_identifiable(dt.date(2023, 12, 1), BREAK, dt.date(2024, 6, 30))
+
+
 def test_growth_rejects_non_positive_training_values() -> None:
     treated, donors = _panel()
     donors.iloc[10, 2] = 0.0
@@ -193,12 +236,16 @@ def test_rolling_origin_passes_a_stable_unit_and_fails_a_drifting_one() -> None:
     assert block["holiday_windows"] == 2  # Jun origin 4-6 and Sep origin 1-3 hold Dec 2023
     for m, s in block["summary"].items():
         assert s["passes"], (m, s)
-        assert s["horizons"]["1-3"]["n_origins"] == 3
+        assert s["horizons"]["1-3"]["n_origins"] == 4
         assert s["horizons"]["4-6"]["n_origins"] == 3
         assert 0 < s["horizons"]["1-3"]["rank_p"] <= 1
     assert block["selected"] in forecast.MODELS
     assert block["ranking"][0] == block["selected"]
-    assert "summary_after" not in block
+    # without a break week every origin counts and the two readings coincide
+    assert block["break_week"] is None
+    assert block["rule_origins"] == [o.isoformat() for o in ORIGINS]
+    assert block["summary_all"] == block["summary"]
+    assert block["selected_all"] == block["selected"]
     first = block["fits"]["simplex"]["2023-06-30"]
     assert first["horizons"]["1-3"]["window"] == ["2023-07-01", "2023-09-30"]
     assert first["horizons"]["1-3"]["n_days"] == 92
@@ -215,16 +262,17 @@ def test_rolling_origin_passes_a_stable_unit_and_fails_a_drifting_one() -> None:
         END,
         28,
         2.0,
-        after=dt.date(2023, 9, 30),
+        break_week=BREAK,
     )
     for m in ("simplex", "anchored", "growth", "seasonal", "seasonal_step"):
-        s = block["summary"][m]
+        s = block["summary_all"][m]
         assert not s["passes"], (m, s)
         assert s["horizons"]["4-6"]["bias_pct"] < -2
-    assert block["selected"] is None or block["selected"] == "ridge"
-    # the reading over the later origins has the same shape with fewer origins behind it
-    assert block["after_origin"] == "2023-09-30"
-    assert set(block["summary_after"]) == set(forecast.MODELS)
-    assert block["summary_after"]["simplex"]["horizons"]["1-3"]["n_origins"] == 2
-    assert block["summary_after"]["simplex"]["horizons"]["4-6"]["n_origins"] == 2
-    assert "selected_after" in block
+    assert block["selected_all"] is None or block["selected_all"] == "ridge"
+    # the rule counts only the origin that sees the break with a month on both sides
+    assert block["break_week"] == "2023-12-18"
+    assert block["rule_origins"] == ["2024-03-31"]
+    assert set(block["summary"]) == set(forecast.MODELS)
+    assert block["summary"]["simplex"]["horizons"]["1-3"]["n_origins"] == 1
+    assert block["summary"]["simplex"]["horizons"]["4-6"]["n_origins"] == 0
+    assert "summary_after" not in block

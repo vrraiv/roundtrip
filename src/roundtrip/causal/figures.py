@@ -134,27 +134,42 @@ def oos_plot(fits: dict[str, Any], settings: Settings, path: Path) -> None:
 
 
 def rolling_plot(block: dict[str, Any], outcome: str, path: Path) -> None:
-    """Mean forecast gap by horizon: one small marker per origin, a bar at the mean across
-    origins (the bias the selection rule tests), one colour per model."""
+    """Mean forecast gap by horizon: one small marker per origin (hollow where the rule
+    does not count the origin), a bar at the mean across the counted origins (the bias
+    the selection rule tests), one colour per model."""
     models = list(block["summary"])
     labels = list(block["horizons"])
     tol = block["tolerance_pct"]
+    rule = set(block.get("rule_origins") or block["origins"])
     fig, ax = plt.subplots(figsize=(10, 4.2))
     width = 0.8 / max(1, len(models))
     for i, m in enumerate(models):
         color = OOS_COLORS.get(m, "grey")
         for j, lab in enumerate(labels):
             x = j + (i - (len(models) - 1) / 2) * width
-            gaps = [
-                e["horizons"][lab]["mean_gap_pct"]
-                for e in block["fits"][m].values()
+            gaps = {
+                o: e["horizons"][lab]["mean_gap_pct"]
+                for o, e in block["fits"][m].items()
                 if "horizons" in e and lab in e["horizons"]
-            ]
-            if not gaps:
-                continue
-            ax.scatter([x] * len(gaps), gaps, color=color, s=14, alpha=0.6, zorder=3)
-            mean = sum(gaps) / len(gaps)
-            ax.plot([x - width * 0.4, x + width * 0.4], [mean, mean], color=color, lw=2.5, zorder=4)
+            }
+            inside = [g for o, g in gaps.items() if o in rule]
+            outside = [g for o, g in gaps.items() if o not in rule]
+            if inside:
+                ax.scatter([x] * len(inside), inside, color=color, s=14, alpha=0.6, zorder=3)
+                mean = sum(inside) / len(inside)
+                ax.plot(
+                    [x - width * 0.4, x + width * 0.4], [mean, mean], color=color, lw=2.5, zorder=4
+                )
+            if outside:
+                ax.scatter(
+                    [x] * len(outside),
+                    outside,
+                    facecolors="none",
+                    edgecolors=color,
+                    s=14,
+                    alpha=0.6,
+                    zorder=3,
+                )
         ax.plot([], [], color=color, lw=2.5, label=m)
     ax.axhspan(-tol, tol, color="black", alpha=0.06, lw=0)
     ax.axhline(0, color="black", lw=0.6)
@@ -163,8 +178,8 @@ def rolling_plot(block: dict[str, Any], outcome: str, path: Path) -> None:
     ax.set_ylabel("mean gap, % of forecast")
     ax.set_title(
         f"{OUTCOME_LABELS.get(outcome, outcome)}: rolling-origin validation, origins "
-        f"{block['origins'][0]} to {block['origins'][-1]} (dots) and their mean (bars); "
-        f"band = +/-{tol:g} points",
+        f"{block['origins'][0]} to {block['origins'][-1]} (dots; hollow where the rule does "
+        f"not count the origin) and the rule's mean (bars); band = +/-{tol:g} points",
         fontsize=10,
     )
     ax.legend(loc="lower left", fontsize=8, frameon=False, ncol=len(models))

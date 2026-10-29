@@ -25,7 +25,10 @@ with diagnostics, placebos and limitations: [REPORTS/congestion_pricing.md](REPO
 Numbers on main may be a newer candidate than the published release; see
 [releases/index.json](releases/index.json) for what has been approved, by whom and with
 what notes. The reviewer's note on 2026-08: the CBD was losing trip share throughout 2024,
-which complicates the event study design and the synthetic control.
+which complicates the event study design and the synthetic control. That led to the
+redesign of the trips synthetic control recorded in
+[reviews/2026-10-29-synth-redesign.md](reviews/2026-10-29-synth-redesign.md); from the
+next release the trips comparison is the step-adjusted seasonally anchored design.
 
 **Status: phase 2 (event study, synthetic control, report, review gate).**
 
@@ -200,7 +203,7 @@ pages/           hand-written site pages (method.md), reviewed like code
 reviews/         TEMPLATE.md, one record per candidate month, and ad hoc reviews
                  (decisions taken between releases); all rendered on the site's Releases page
 releases/        index.json (approved and rejected runs) and approved bundles
-tests/           synthetic month generator, simulated causal panel; 75 tests
+tests/           synthetic month generator, simulated causal panel; 87 tests
 .github/workflows/
   ci.yml           ruff, mypy --strict, pytest on every PR
   backfill.yml     process a range of months, one job per month, with profiling

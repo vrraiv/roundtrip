@@ -35,8 +35,11 @@ validation showed the forecast gap has a calendar shape the donors do not share:
   months not seen get zero) and a level over the last ``ANCHOR_DAYS`` net of that
   profile. The anchored design with the season taken out of the anchor.
 - ``seasonal_step``: the same, after netting out a single level shift inside the
-  training window when ``change_point`` prefers a step on the training residual.
-  Without this a break inside the profile's twelve months is read as seasonality.
+  training window when ``change_point`` prefers a step on the CBD's log share of the
+  donor total there. Without this a break inside the profile's twelve months is read
+  as seasonality. The headline trips design since owner decision 13 (29 October 2026):
+  ``synth_fit`` returns it in the synthetic control's form for the comparisons, the
+  placebos and the figures.
 
 Two more were run through the 2023 hold-out on 28 October 2026 and dropped: a simplex
 with a free intercept and no sum constraint (Doudchenko and Imbens 2016) reproduced the
@@ -50,21 +53,26 @@ donor pool) for a single mean shift against a constant and a straight trend.
 ``rolling_origin`` is the selection rule for the trips design: train through each of
 several origins, score the untreated days 1 to 3, 4 to 6 and 7 to 12 months ahead, and
 pass a design only if its mean gap across origins is within tolerance at every horizon.
-With one origin any estimator can be tuned to pass; with six it has to forecast. The
-same statistics over the origins from a given date on (``after``) are reported beside
-the rule, so a level break that no earlier origin could see can be read separately.
+With one origin any estimator can be tuned to pass; with six it has to forecast. An
+origin counts toward the rule only if the dated level break (``break_week``) is
+identifiable in its training window, that is some calendar month is seen on both sides
+of the break in different years (owner decision 12, 29 October 2026): an origin that
+trains before the break is asked to forecast a shift it cannot see. The same statistics
+over every origin are reported beside the rule.
 """
 
 from __future__ import annotations
 
 import datetime as dt
+import functools
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
-from roundtrip.causal.synth import fit_weights
+from roundtrip.causal.synth import SynthFit, fit_weights, rmspe, synthetic_control
 
 MODELS: tuple[str, ...] = (
     "simplex",
@@ -74,6 +82,14 @@ MODELS: tuple[str, ...] = (
     "seasonal",
     "seasonal_step",
 )
+MODEL_LABELS: dict[str, str] = {
+    "simplex": "simplex weights",
+    "ridge": "ridge regression",
+    "anchored": "anchored (last 90 days)",
+    "growth": "growth-rate (weekly log changes)",
+    "seasonal": "seasonally anchored (last 12 months)",
+    "seasonal_step": "seasonally anchored, step-adjusted",
+}
 ANCHOR_DAYS = 90
 SEASON_DAYS = 365
 STEP_MONTH_DAYS = 20  # a year-month counts in the step comparison with this many days
@@ -302,6 +318,11 @@ def fit_forecast(
         a, profile, step, n_late = _seasonal(resid, share)
         d = np.array([profile.get(int(m), 0.0) for m in pd.DatetimeIndex(idx).month])
         pred = (a + d + (x_all / scale_x) @ w) * scale_y
+        if step is not None and step["applied"]:
+            # the fitted series before the break sits at the pre-break level, so the
+            # in-sample fit, and a figure of it, shows the step rather than a residual
+            before = train & np.asarray(idx < pd.Timestamp(step["break_week"]))
+            pred[before] -= step["shift_pct"] / 100 * scale_y
         params["intercept_pct"] = 100 * a
         params["anchor_days"] = n_late
         params["profile_pct"] = {str(m): 100 * v for m, v in sorted(profile.items())}
@@ -414,10 +435,13 @@ def evaluate(
     return block, fits
 
 
-def drift_verdict(block: dict[str, Any], tolerance_pct: float) -> dict[str, Any]:
+def drift_verdict(
+    block: dict[str, Any], tolerance_pct: float, counts: tuple[str, ...] = VERDICT_MODELS
+) -> dict[str, Any]:
     """Which models stay within ``tolerance_pct`` on the hold-out year, overall and in
     its last quarter (``holdout_late``, where drift shows). ``counts`` marks the models
-    whose result decides the verdict; the others are reported for comparison."""
+    whose result decides the verdict (in the pipeline, the adopted design); the others
+    are reported for comparison."""
     out = {}
     for model, res in block["models"].items():
         hold = res["windows"]["holdout"]["mean_gap_pct"]
@@ -426,7 +450,7 @@ def drift_verdict(block: dict[str, Any], tolerance_pct: float) -> dict[str, Any]
             "holdout_gap_pct": hold,
             "late_holdout_gap_pct": late_mean,
             "passes": bool(abs(hold) <= tolerance_pct and abs(late_mean) <= tolerance_pct),
-            "counts": model in VERDICT_MODELS,
+            "counts": model in counts,
         }
     return out
 
@@ -434,6 +458,51 @@ def drift_verdict(block: dict[str, Any], tolerance_pct: float) -> dict[str, Any]
 def verdict_passes(verdict: dict[str, Any]) -> bool:
     """True if any model that counts stays within tolerance."""
     return any(v.get("passes") for v in verdict.values() if v.get("counts", True))
+
+
+# --- the headline design in the synthetic control's form ------------------------------
+
+
+def synth_fit(
+    design: str,
+    outcome: str,
+    treated: pd.Series,
+    donors: pd.DataFrame,
+    fit_start: dt.date,
+    fit_end: dt.date,
+    unit: str = "cbd",
+) -> SynthFit:
+    """The counterfactual for ``outcome`` under ``design`` (any name in ``MODELS``) as a
+    ``SynthFit``, so the comparisons, the placebos in space and the figures read every
+    design the same way. ``simplex`` is the original synthetic control; any other model
+    is fitted here with its parameters frozen at ``fit_end``."""
+    if design == "simplex":
+        return synthetic_control(outcome, treated, donors, fit_start, fit_end, unit=unit)
+    fc = fit_forecast(design, outcome, treated, donors, fit_start, fit_end)
+    kept = fc.params.get("weights", {})
+    weights = pd.Series(
+        [float(kept.get(str(c), 0.0)) for c in donors.columns], index=donors.columns, name="weight"
+    )
+    idx = fc.actual.index
+    m = (idx >= pd.Timestamp(fit_start)) & (idx <= pd.Timestamp(fit_end))
+    return SynthFit(
+        outcome=outcome,
+        unit=unit,
+        weights=weights,
+        actual=fc.actual,
+        synthetic=fc.predicted,
+        fit_start=fit_start,
+        fit_end=fit_end,
+        pre_rmspe=rmspe(fc.actual[m], fc.predicted[m]),
+        design=design,
+        params={k: v for k, v in fc.params.items() if k != "weights"},
+    )
+
+
+def synth_refit(design: str) -> Callable[..., SynthFit]:
+    """The fitter ``placebo_in_space`` uses to treat each donor the way the treated unit
+    was treated under ``design``."""
+    return functools.partial(synth_fit, design)
 
 
 # --- rolling-origin validation --------------------------------------------------------
@@ -454,6 +523,29 @@ def _horizon_label(months: tuple[int, int]) -> str:
     return f"{months[0]}-{months[1]}"
 
 
+def break_identifiable(train_start: dt.date, break_week: dt.date, origin: dt.date) -> bool:
+    """Whether a level shift in the week of ``break_week`` can be told from seasonality in
+    a training window from ``train_start`` through ``origin``: some calendar month has at
+    least ``STEP_MONTH_DAYS`` days before the break and, in a later year, at least as many
+    on or after it (the same-month comparison ``seasonal_step`` rests on). Within one year
+    a step and a season are not separable."""
+    if not train_start <= break_week <= origin:
+        return False
+    days = pd.date_range(train_start, origin, freq="D")
+    d = pd.DataFrame(
+        {
+            "ym": days.year * 100 + days.month,
+            "month": days.month,
+            "after": days >= pd.Timestamp(break_week),
+        }
+    )
+    n = d.groupby(["ym", "month", "after"]).size().reset_index(name="n")
+    n = n[n["n"] >= STEP_MONTH_DAYS]
+    before = set(n.loc[~n["after"], "month"].tolist())
+    seen_after = set(n.loc[n["after"], "month"].tolist())
+    return bool(before & seen_after)
+
+
 def rolling_origin(
     outcome: str,
     treated: pd.Series,
@@ -465,7 +557,7 @@ def rolling_origin(
     min_days: int,
     tolerance_pct: float,
     models: tuple[str, ...] = MODELS,
-    after: dt.date | None = None,
+    break_week: dt.date | None = None,
 ) -> dict[str, Any]:
     """Rolling-origin validation of every model.
 
@@ -475,13 +567,20 @@ def rolling_origin(
     scored window carries the share of donors whose own gap is at least as large as the
     treated unit's. A model passes if the mean gap across origins is within
     ``tolerance_pct`` at every horizon; among the passers the lowest mean RMSPE is
-    ``selected``. With ``after``, ``summary_after`` and ``selected_after`` repeat the
-    summary over the origins on or after that date, beside the rule."""
+    ``selected``. With ``break_week`` the rule counts only the origins where that break
+    is identifiable in the training window (``rule_origins``, see
+    ``break_identifiable``); ``summary_all`` and ``selected_all`` repeat the summary over
+    every origin, beside the rule."""
     labels = [_horizon_label(h) for h in horizons]
+    rule = [
+        o for o in origins if break_week is None or break_identifiable(train_start, break_week, o)
+    ]
     block: dict[str, Any] = {
         "train_start": train_start.isoformat(),
         "end": end.isoformat(),
         "origins": [o.isoformat() for o in origins],
+        "break_week": break_week.isoformat() if break_week else None,
+        "rule_origins": [o.isoformat() for o in rule],
         "horizons": {lab: list(h) for lab, h in zip(labels, horizons, strict=True)},
         "tolerance_pct": tolerance_pct,
         "min_days": min_days,
@@ -540,19 +639,17 @@ def rolling_origin(
                 }
             block["fits"][model][o.isoformat()] = entry
 
+    keep = set(block["rule_origins"])
     block["summary"] = {
-        m: _rolling_summary(block["fits"][m], labels, tolerance_pct) for m in models
+        m: _rolling_summary(block["fits"][m], labels, tolerance_pct, keep) for m in models
     }
     block["ranking"] = _passing(block["summary"])
     block["selected"] = block["ranking"][0] if block["ranking"] else None
-    if after is not None:
-        keep = {o.isoformat() for o in origins if o >= after}
-        block["after_origin"] = after.isoformat()
-        block["summary_after"] = {
-            m: _rolling_summary(block["fits"][m], labels, tolerance_pct, keep) for m in models
-        }
-        ranking = _passing(block["summary_after"])
-        block["selected_after"] = ranking[0] if ranking else None
+    block["summary_all"] = {
+        m: _rolling_summary(block["fits"][m], labels, tolerance_pct) for m in models
+    }
+    block["ranking_all"] = _passing(block["summary_all"])
+    block["selected_all"] = block["ranking_all"][0] if block["ranking_all"] else None
     return block
 
 

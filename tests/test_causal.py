@@ -230,7 +230,11 @@ def test_run_causal_end_to_end(sim_settings: Settings, tmp_path: Path) -> None:
     assert set(bundle["windows"]) == {"anticipation", "post"}
     head = bundle["headline"]["n_trips"]
     assert head["design"] == "synthetic_control"
+    assert head["note"].startswith("seasonally anchored, step-adjusted")
     assert abs(head["effect_pct"] - 100 * TRUE_TRIP_EFFECT) < 3
+    assert bundle["synth"]["n_trips"]["design"] == sim_settings.synth_trips_design
+    assert bundle["synth"]["n_trips"]["params"]["step"] is not None
+    assert bundle["synth"]["mean_wait_seconds"]["design"] == "simplex"
     assert bundle["synth"]["n_trips"]["test_2023"]["windows"]["placebo_2023"][
         "mean_gap_pct"
     ] == pytest.approx(0, abs=3)
@@ -254,9 +258,16 @@ def test_run_causal_end_to_end(sim_settings: Settings, tmp_path: Path) -> None:
         assert abs(r["windows"]["post"]["mean_gap_pct"] - 100 * TRUE_TRIP_EFFECT) < 4, m
     sr = bundle["synth_rolling"]["n_trips"]
     assert set(sr["summary"]) == set(forecast_models())
-    assert set(sr["summary_after"]) == set(forecast_models())
-    assert sr["after_origin"] == sim_settings.rolling_break_week.isoformat()
+    assert set(sr["summary_all"]) == set(forecast_models())
+    assert sr["break_week"] == sim_settings.rolling_break_week.isoformat()
+    assert sr["rule_origins"] == ["2024-03-31", "2024-06-30", "2024-09-30"]
+    assert "summary_after" not in sr
     assert sr["summary"]["simplex"]["passes"] and sr["selected"] is not None
+    guard = bundle["synth"]["n_trips"]["guard"]
+    assert guard["design"] == "seasonal_step" and guard["rolling_passes"] is True
+    assert guard["holdout_passes"] is not None and guard["holdout_gap_pct"] is not None
+    assert bundle["synth_oos"]["n_trips"]["verdict"]["seasonal_step"]["counts"]
+    assert not bundle["synth_oos"]["n_trips"]["verdict"]["simplex"]["counts"]
     assert sr["origins"] == [d.isoformat() for d in sim_settings.rolling_origins]
     assert (out / "figures" / "synth_rolling_n_trips.png").exists()
     py = [e for e in bundle["prior_year_placebo"] if e["outcome"] == "n_trips" and e["adjusted"]]
