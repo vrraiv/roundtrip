@@ -10,7 +10,7 @@ import pytest
 from roundtrip import release
 from roundtrip.config import Settings
 from roundtrip.report.build import build_report
-from roundtrip.report.site import build_site
+from roundtrip.report.site import build_site, review_records
 from roundtrip.report.summary import bundle_summary, load_bundle
 
 REPO = Path(__file__).resolve().parent.parent
@@ -323,3 +323,72 @@ def test_site_banner_shows_approval(repo_settings: Settings, tmp_path: Path) -> 
     assert '<a href="releases/2025-06/index.html">2025-06</a>' in releases
     assert "approve with notes" in releases
     assert "release 2025-06, estimates bundle at git <code>abcdef123456</code>" in releases
+
+
+ADHOC = """# Review record: donor pool
+
+One sentence that says what was decided.
+
+## Context
+
+Why the question came up.
+
+## Decisions
+
+| # | Option | Recommendation | Decision |
+|---|---|---|---|
+| 1 | Drop Lenox Hill from the donors | Try as one variant | Later |
+
+## Reviewer
+
+Initials: VR
+Date: 2026-01-15
+"""
+
+
+def test_site_renders_review_records(repo_settings: Settings, tmp_path: Path) -> None:
+    bundle = _bundle(tmp_path / "est" / "estimates.json")
+    path = release.prepare(repo_settings, "2025-06", bundle)
+    _fill(path, decision="approve with notes")
+    release.approve(repo_settings, "2025-06", bundle)
+    adhoc = repo_settings.reviews_dir / "2026-01-15-donor-pool.md"
+    adhoc.write_text(ADHOC, encoding="utf-8")
+    records = review_records(repo_settings.reviews_dir)
+    assert [r.stem for r in records] == ["2026-01-15-donor-pool", "2025-06"]  # newest first
+    assert records[0].title == "Review record: donor pool"
+    assert records[0].summary == "One sentence that says what was decided."
+    assert (records[0].reviewer, records[0].date, records[0].monthly) == ("VR", "2026-01-15", False)
+    assert records[1].monthly and records[1].date == "2026-01-02"
+    out = tmp_path / "REPORTS"
+    build_report(repo_settings, bundle, None, out_dir=out)
+    site = tmp_path / "site"
+    build_site(out, site, repo_settings.releases_dir, reviews_dir=repo_settings.reviews_dir)
+    page = (site / "reviews" / "2026-01-15-donor-pool.html").read_text(encoding="utf-8")
+    assert "<h1>Review record: donor pool</h1>" in page
+    assert "<td>Drop Lenox Hill from the donors</td>" in page
+    assert "Reviewed release" not in page  # no release status line on a record
+    assert 'href="../index.html"' in page and 'href="../releases.html" aria-current' in page
+    assert (site / "reviews" / "2025-06.html").exists()
+    releases = (site / "releases.html").read_text(encoding="utf-8")
+    assert '<a href="reviews/2025-06.html">Review record</a>' in releases
+    assert "<h2>Other reviews</h2>" in releases
+    assert '<a href="reviews/2026-01-15-donor-pool.html">Review record: donor pool</a>' in releases
+    assert "<td>One sentence that says what was decided.</td>" in releases
+    # without a reviews directory the page is as before
+    build_site(out, tmp_path / "site2", repo_settings.releases_dir)
+    assert "Other reviews" not in (tmp_path / "site2" / "releases.html").read_text(encoding="utf-8")
+
+
+def test_committed_review_records_parse() -> None:
+    records = {r.stem: r for r in review_records(REPO / "reviews")}
+    redesign = records["2026-10-29-synth-redesign"]
+    assert not redesign.monthly
+    assert (redesign.reviewer, redesign.date) == ("vrraiv", "2026-10-29")
+    assert redesign.summary.startswith("Eleven decisions")
+    assert (
+        redesign.text.count("| Yes |")
+        + redesign.text.count("| No |")
+        + redesign.text.count("| Later |")
+        == 11
+    )
+    assert records["2026-08"].monthly and records["2026-08"].reviewer == "vrraiv"

@@ -302,12 +302,13 @@ def report(
 def build_site_cmd(
     out: Annotated[Path, typer.Option("--out", help="Output directory.")] = Path("site"),
 ) -> None:
-    """Build the public site (home, one page per outcome, method, report, releases and the
-    release archive) from REPORTS/ and releases/ for Cloudflare Pages."""
+    """Build the public site (home, one page per outcome, method, report, releases with the
+    release archive, and the review records) from REPORTS/, releases/ and reviews/ for
+    Cloudflare Pages."""
     from roundtrip.report.site import build_site
 
     s = _settings()
-    for p in build_site(s.reports_dir, out, s.releases_dir, s.pages_dir, s.repo_url):
+    for p in build_site(s.reports_dir, out, s.releases_dir, s.pages_dir, s.repo_url, s.reviews_dir):
         typer.echo(str(p))
 
 

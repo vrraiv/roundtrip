@@ -19,6 +19,7 @@ from __future__ import annotations
 import datetime as dt
 import html
 import json
+import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,11 +27,13 @@ from typing import Any
 
 import markdown
 
+from roundtrip import release
 from roundtrip.report.charts import CHART_CSS, CHART_JS, effect_chart, series_chart
 from roundtrip.report.summary import DESIGN_LABELS
 
 REPORT_MD = "congestion_pricing.md"
 METHOD_MD = "method.md"
+REVIEW_MONTH = re.compile(r"^\d{4}-\d{2}$")  # a monthly record is reviews/YYYY-MM.md
 NAV = (
     ("index.html", "Home"),
     ("trips.html", "Trips"),
@@ -519,8 +522,70 @@ def outcome_html(o: Outcome, bundle: dict[str, Any]) -> str:
     return "\n".join(parts)
 
 
+@dataclass(frozen=True)
+class ReviewRecord:
+    """One Markdown record under ``reviews/``: a monthly release review (``YYYY-MM.md``,
+    written by the review form) or an ad hoc review (any other name), such as a set of
+    design decisions taken between releases. Both render to ``reviews/<stem>.html``."""
+
+    stem: str
+    title: str
+    summary: str  # the first paragraph under the title
+    reviewer: str
+    date: str
+    text: str
+
+    @property
+    def monthly(self) -> bool:
+        return REVIEW_MONTH.match(self.stem) is not None
+
+    @property
+    def page(self) -> str:
+        return f"reviews/{self.stem}.html"
+
+
+def review_records(reviews_dir: Path | None) -> list[ReviewRecord]:
+    """Every record under ``reviews/`` except the template, newest first."""
+    if reviews_dir is None or not reviews_dir.exists():
+        return []
+    out: list[ReviewRecord] = []
+    for path in sorted(reviews_dir.glob("*.md")):
+        if path.name == "TEMPLATE.md":
+            continue
+        text = path.read_text(encoding="utf-8")
+        title = path.stem
+        summary: list[str] = []
+        for line in text.splitlines():
+            if line.startswith("# "):
+                title = line[2:].strip()
+            elif line.startswith("#"):
+                break
+            elif line.strip():
+                summary.append(line.strip())
+            elif summary:
+                break
+        reviewer = release.parse(path).get("Reviewer", "")
+        init = re.search(r"Initials:\s*(\S+)", reviewer)
+        date = re.search(r"Date:\s*(\d{4}-\d{2}-\d{2})", reviewer)
+        out.append(
+            ReviewRecord(
+                path.stem,
+                title,
+                " ".join(summary),
+                init.group(1) if init else "",
+                date.group(1) if date else "",
+                text,
+            )
+        )
+    return sorted(out, key=lambda r: (r.date, r.stem), reverse=True)
+
+
 def releases_html(
-    releases_dir: Path | None, bundle: dict[str, Any], repo_url: str, archive: list[str]
+    releases_dir: Path | None,
+    bundle: dict[str, Any],
+    repo_url: str,
+    archive: list[str],
+    records: list[ReviewRecord] | None = None,
 ) -> str:
     index: dict[str, list[dict[str, Any]]] = {"approved": [], "rejected": []}
     if releases_dir is not None and (releases_dir / "index.json").exists():
@@ -528,6 +593,8 @@ def releases_html(
     rows = [dict(e, _kind="approved") for e in index.get("approved", [])]
     rows += [dict(e, _kind="rejected") for e in index.get("rejected", [])]
     rows.sort(key=lambda e: str(e.get("month", "")), reverse=True)
+    records = records or []
+    monthly = {r.stem: r for r in records if r.monthly}
     parts = [
         "<h1>Releases</h1>",
         "<p>One row per reviewed run. A release replaces the front page; earlier releases "
@@ -540,7 +607,9 @@ def releases_html(
         month = str(e.get("month", ""))
         link = f'<a href="releases/{month}/index.html">{month}</a>' if month in archive else month
         status = str(e.get("status", e["_kind"]))
-        notes = str(e.get("notes") or e.get("reason") or "")
+        notes = html.escape(str(e.get("notes") or e.get("reason") or ""))
+        if month in monthly:
+            notes += f' <a href="{monthly[month].page}">Review record</a>'
         parts.append(
             f"<tr><td>{link}</td><td>{html.escape(status)}</td>"
             f"<td>{html.escape(str(e.get('reviewer', '')))}</td>"
@@ -548,11 +617,27 @@ def releases_html(
             f"<td>{html.escape(str(e.get('data_end', '')))}</td>"
             f"<td><code>{html.escape(str(e.get('run_id', '')))}</code> "
             f"git <code>{html.escape(str(e.get('git_sha', '')))}</code></td>"
-            f"<td>{html.escape(notes)}</td></tr>"
+            f"<td>{notes.strip()}</td></tr>"
         )
     if not rows:
         parts.append('<tr><td colspan="7">No reviewed release yet.</td></tr>')
     parts.append("</tbody></table></div>")
+    adhoc = [r for r in records if not r.monthly]
+    if adhoc:
+        parts += [
+            "<h2>Other reviews</h2>",
+            "<p>Decisions taken between releases, recorded the same way as a monthly review "
+            "and kept in the repository with the code they changed.</p>",
+            '<div class="table-wrap"><table><thead><tr><th>Date</th><th>Review</th>'
+            "<th>Reviewer</th><th>Summary</th></tr></thead><tbody>",
+        ]
+        for r in adhoc:
+            parts.append(
+                f"<tr><td>{html.escape(r.date)}</td>"
+                f'<td><a href="{r.page}">{html.escape(r.title)}</a></td>'
+                f"<td>{html.escape(r.reviewer)}</td><td>{html.escape(r.summary)}</td></tr>"
+            )
+        parts.append("</tbody></table></div>")
     sha = str(bundle.get("git_sha", ""))[:12]
     parts += [
         "<h2>Getting the data</h2>",
@@ -664,10 +749,13 @@ def build_site(
     releases_dir: Path | None = None,
     pages_dir: Path | None = None,
     repo_url: str = "https://github.com/vrraiv/roundtrip",
+    reviews_dir: Path | None = None,
 ) -> list[Path]:
     """Build the whole site into ``out_dir``: the live pages from ``reports_dir``, the
-    Method page from ``pages_dir``, the Releases page and one archived copy per approved
-    release found under ``releases_dir``."""
+    Method page from ``pages_dir``, the Releases page with one archived copy per approved
+    release found under ``releases_dir``, and a page per review record under
+    ``reviews_dir`` (monthly records linked from their release row, ad hoc reviews listed
+    under the releases)."""
     out_dir.mkdir(parents=True, exist_ok=True)
     bundle_path = reports_dir / "estimates.json"
     bundle = load_bundle(bundle_path) if bundle_path.exists() else {}
@@ -710,12 +798,27 @@ def build_site(
         reports_dir / REPORT_MD, "Full report", "The technical report is not in this build."
     )
     written.append(_write(out_dir, "report.html", title, body, banner, _nav("report.html"), footer))
+    records = review_records(reviews_dir)
+    for r in records:
+        # a record is the reviewer's own words; no release status line above it
+        written.append(
+            _write(
+                out_dir,
+                r.page,
+                r.title,
+                _md(r.text),
+                "",
+                _nav("releases.html", "../"),
+                footer,
+                home="../index.html",
+            )
+        )
     written.append(
         _write(
             out_dir,
             "releases.html",
             "Releases",
-            releases_html(releases_dir, bundle, repo_url, archive),
+            releases_html(releases_dir, bundle, repo_url, archive, records),
             banner,
             _nav("releases.html"),
             footer,
