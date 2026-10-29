@@ -132,6 +132,8 @@ OOS_LABELS = {
     "ridge": "ridge regression",
     "anchored": "anchored (last 90 days)",
     "growth": "growth-rate (weekly log changes)",
+    "seasonal": "seasonally anchored (last 12 months)",
+    "seasonal_step": "seasonally anchored, step-adjusted",
 }
 
 
@@ -234,22 +236,7 @@ def _rolling_section(bundle: dict[str, Any]) -> str:
         "|---|---|" + "---|" * len(labels) + "---|---|---|",
     ]
     for o, b in rolling.items():
-        for m, s in b["summary"].items():
-            cells = []
-            for lab in labels:
-                h = s["horizons"].get(lab, {})
-                if not h.get("n_origins"):
-                    cells.append("n/a")
-                else:
-                    mark = "" if h["within"] else " !"
-                    cells.append(f"{_fmt(h['bias_pct'])}% ({h['n_origins']}){mark}")
-            ranks = [h["rank_p"] for h in s["horizons"].values() if h.get("n_origins")]
-            rank = f"{sum(ranks) / len(ranks):.2f}" if ranks else "n/a"
-            lines.append(
-                f"| {OUTCOME_LABELS.get(o, o)} | {OOS_LABELS.get(m, m)} | "
-                + " | ".join(cells)
-                + f" | {s['rmspe_pct']:.1f}% | {rank} | {'yes' if s['passes'] else 'no'} |"
-            )
+        lines += _rolling_rows(o, b["summary"], labels)
     lines.append("")
     for o, b in rolling.items():
         label = OUTCOME_LABELS.get(o, o)
@@ -277,11 +264,56 @@ def _rolling_section(bundle: dict[str, Any]) -> str:
         f"\nScoring windows containing Christmas: {first['holiday_windows']} (the protocol "
         "asks for at least two, so the holiday artefact counts against a design)."
     )
+    if first.get("summary_after"):
+        lines += [
+            "",
+            f"The same table over the origins from {first['after_origin']} on, after the "
+            "level break of December 2023 that the change-point test dated. No earlier origin "
+            "can forecast through that break, so this reading separates the break from the "
+            "design. It is reported beside the rule, not as the rule; fewer origins stand "
+            "behind each cell.",
+            "",
+            lines[2],
+            lines[3],
+        ]
+        for o, b in rolling.items():
+            lines += _rolling_rows(o, b["summary_after"], labels)
+        for o, b in rolling.items():
+            sel = b.get("selected_after")
+            lines.append(
+                f"\n- **{OUTCOME_LABELS.get(o, o)}**, origins after the break: "
+                + (
+                    f"selected {OOS_LABELS.get(sel, sel)}."
+                    if sel
+                    else f"no model within {tol:g} points at every horizon."
+                )
+            )
     figs = "\n\n".join(
         f"![Rolling-origin validation: {OUTCOME_LABELS.get(o, o)}](figures/synth_rolling_{o}.png)"
         for o in rolling
     )
     return "\n".join(lines) + "\n\n" + figs
+
+
+def _rolling_rows(outcome: str, summary: dict[str, Any], labels: list[str]) -> list[str]:
+    rows = []
+    for m, s in summary.items():
+        cells = []
+        for lab in labels:
+            h = s["horizons"].get(lab, {})
+            if not h.get("n_origins"):
+                cells.append("n/a")
+            else:
+                mark = "" if h["within"] else " !"
+                cells.append(f"{_fmt(h['bias_pct'])}% ({h['n_origins']}){mark}")
+        ranks = [h["rank_p"] for h in s["horizons"].values() if h.get("n_origins")]
+        rank = f"{sum(ranks) / len(ranks):.2f}" if ranks else "n/a"
+        rows.append(
+            f"| {OUTCOME_LABELS.get(outcome, outcome)} | {OOS_LABELS.get(m, m)} | "
+            + " | ".join(cells)
+            + f" | {s['rmspe_pct']:.1f}% | {rank} | {'yes' if s['passes'] else 'no'} |"
+        )
+    return rows
 
 
 def _prior_year_placebo(bundle: dict[str, Any]) -> str:

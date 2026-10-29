@@ -240,6 +240,11 @@ class Settings(BaseSettings):
     rolling_horizons_months: tuple[tuple[int, int], ...] = ((1, 3), (4, 6), (7, 12))
     rolling_bias_tolerance_pct: float = 2.0
     rolling_min_days: int = 28
+    # The rolling-origin table is also read over the origins from this date on: the
+    # change-point test (28 October 2026) dated the CBD's level break to the week of
+    # 18 December 2023, and no origin before it can forecast through it. Reported
+    # beside the rule, not part of it.
+    rolling_break_week: dt.date = dt.date(2023, 12, 18)
     # Prior-year design run on an untreated window (Jan to 13 Nov 2024 vs 2023): it should
     # find nothing if the design is sound.
     prior_year_placebo_start: dt.date = dt.date(2024, 1, 5)

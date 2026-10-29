@@ -16,11 +16,15 @@ END = dt.date(2024, 5, 14)
 
 
 def _panel(
-    seed: int = 0, step_at: int | None = None, drift_per_day: float = 0.0
+    seed: int = 0,
+    step_at: int | None = None,
+    drift_per_day: float = 0.0,
+    cycle: float = 0.0,
 ) -> tuple[pd.Series, pd.DataFrame]:
     """Treated unit as a noisy combination of 6 donors over 500 days, with an optional
-    level step in the treated unit at day ``step_at`` and an optional treated-only
-    linear drift."""
+    level step in the treated unit at day ``step_at``, an optional treated-only linear
+    drift and an optional treated-only yearly cycle of amplitude ``cycle`` (high on
+    1 April, low on 1 October)."""
     rng = np.random.default_rng(seed)
     idx = pd.date_range("2023-01-01", periods=500, freq="D")
     t = np.arange(500)
@@ -34,6 +38,8 @@ def _panel(
         treated = treated * np.where(t >= step_at, 0.95, 1.0)
     if drift_per_day:
         treated = treated * (1 + drift_per_day * t)
+    if cycle:
+        treated = treated * (1 + cycle * np.sin(2 * np.pi * t / 365))
     return pd.Series(treated, index=idx), donors
 
 
@@ -65,6 +71,55 @@ def test_anchored_and_growth_carry_a_late_training_level_shift_forward() -> None
     assert gaps["simplex"] < -1.5
     assert abs(gaps["anchored"]) < 1.5
     assert abs(gaps["growth"]) < 1.5
+
+
+def test_seasonal_designs_carry_a_treated_only_season_forward() -> None:
+    # a 4% yearly cycle in the treated unit only (high in April, low in October), a full
+    # year of training: the anchored design pins the level to Oct-Dec and overshoots
+    # Jan-May; the seasonal designs carry the calendar-month profile forward. Within one
+    # year a cycle looks like a step to the change-point test, but no calendar month is
+    # seen on both sides of that "break", so the step-adjusted design leaves it alone.
+    treated, donors = _panel(cycle=0.04)
+    train_end = dt.date(2023, 12, 31)
+    target = (dt.date(2024, 1, 1), dt.date(2024, 5, 14))
+    gaps = {}
+    for model in ("anchored", "seasonal", "seasonal_step"):
+        f = forecast.fit_forecast(model, "n_trips", treated, donors, dt.date(2023, 1, 1), train_end)
+        gaps[model] = f.window(*target)["mean_gap_pct"]
+        if model != "anchored":
+            p = f.params
+            assert len(p["profile_pct"]) == 12
+            assert p["profile_pct"]["4"] > 2 > -2 > p["profile_pct"]["10"]
+            assert abs(sum(p["profile_pct"].values())) < 1e-6
+    assert abs(gaps["seasonal"]) < 1.5, gaps
+    assert gaps["seasonal_step"] == gaps["seasonal"], gaps
+    assert gaps["anchored"] > 3, gaps
+    assert f.params["step"] is None
+
+
+def test_step_adjusted_seasonal_design_nets_out_an_identified_break() -> None:
+    # a 5% drop at day 150 (end of May 2023) and the same cycle, training through March
+    # 2024: Jan-Mar are seen before and after the break, so the shift is identified. The
+    # plain seasonal design reads Apr-May 2023 (before the drop) into its profile and
+    # over-forecasts Apr-May 2024; the step-adjusted design lifts the earlier months first.
+    treated, donors = _panel(step_at=150, cycle=0.04)
+    train_end = dt.date(2024, 3, 31)
+    target = (dt.date(2024, 4, 1), dt.date(2024, 5, 14))
+    plain = forecast.fit_forecast(
+        "seasonal", "n_trips", treated, donors, dt.date(2023, 1, 1), train_end
+    )
+    adjusted = forecast.fit_forecast(
+        "seasonal_step", "n_trips", treated, donors, dt.date(2023, 1, 1), train_end
+    )
+    step = adjusted.params["step"]
+    assert step is not None
+    assert abs((pd.Timestamp(step["break_week"]) - pd.Timestamp("2023-05-30")).days) <= 21
+    assert -7 < step["shift_pct"] < -3
+    assert step["months"] == [1, 2, 3]
+    g_plain = plain.window(*target)["mean_gap_pct"]
+    g_adj = adjusted.window(*target)["mean_gap_pct"]
+    assert g_plain < -2, (g_plain, g_adj)
+    assert abs(g_adj) < 1.5, (g_plain, g_adj)
 
 
 def test_growth_rejects_non_positive_training_values() -> None:
@@ -143,6 +198,7 @@ def test_rolling_origin_passes_a_stable_unit_and_fails_a_drifting_one() -> None:
         assert 0 < s["horizons"]["1-3"]["rank_p"] <= 1
     assert block["selected"] in forecast.MODELS
     assert block["ranking"][0] == block["selected"]
+    assert "summary_after" not in block
     first = block["fits"]["simplex"]["2023-06-30"]
     assert first["horizons"]["1-3"]["window"] == ["2023-07-01", "2023-09-30"]
     assert first["horizons"]["1-3"]["n_days"] == 92
@@ -150,10 +206,25 @@ def test_rolling_origin_passes_a_stable_unit_and_fails_a_drifting_one() -> None:
 
     drifting, donors = _panel(drift_per_day=-0.0005)  # -1.5% a month, treated only
     block = forecast.rolling_origin(
-        "n_trips", drifting, donors, dt.date(2023, 1, 1), ORIGINS, HORIZONS, END, 28, 2.0
+        "n_trips",
+        drifting,
+        donors,
+        dt.date(2023, 1, 1),
+        ORIGINS,
+        HORIZONS,
+        END,
+        28,
+        2.0,
+        after=dt.date(2023, 9, 30),
     )
-    for m in ("simplex", "anchored", "growth"):
+    for m in ("simplex", "anchored", "growth", "seasonal", "seasonal_step"):
         s = block["summary"][m]
         assert not s["passes"], (m, s)
         assert s["horizons"]["4-6"]["bias_pct"] < -2
     assert block["selected"] is None or block["selected"] == "ridge"
+    # the reading over the later origins has the same shape with fewer origins behind it
+    assert block["after_origin"] == "2023-09-30"
+    assert set(block["summary_after"]) == set(forecast.MODELS)
+    assert block["summary_after"]["simplex"]["horizons"]["1-3"]["n_origins"] == 2
+    assert block["summary_after"]["simplex"]["horizons"]["4-6"]["n_origins"] == 2
+    assert "selected_after" in block
