@@ -142,6 +142,12 @@ reviewer and date, so git history shows, month by month, what was looked at and 
 answer was no. One-time setup for the owner: create the `release` environment in the
 repository settings with yourself as required reviewer.
 
+A decision taken between releases (a redesign, a change of rule) is recorded as an ad hoc
+review: any `reviews/<date>-<name>.md` with a title, a one-paragraph summary and a
+`## Reviewer` section. The site renders every record under `reviews/` and lists the ad hoc
+ones on the Releases page; the first is `reviews/2026-10-29-synth-redesign.md`, the eleven
+synthetic-control redesign decisions.
+
 ## Reproduce locally
 
 ```bash
@@ -191,9 +197,10 @@ sql/
   causal/        zone_day.sql
 REPORTS/         candidate report, figures and the estimates bundle it was built from
 pages/           hand-written site pages (method.md), reviewed like code
-reviews/         TEMPLATE.md and one record per candidate month
+reviews/         TEMPLATE.md, one record per candidate month, and ad hoc reviews
+                 (decisions taken between releases); all rendered on the site's Releases page
 releases/        index.json (approved and rejected runs) and approved bundles
-tests/           synthetic month generator, simulated causal panel; 71 tests
+tests/           synthetic month generator, simulated causal panel; 73 tests
 .github/workflows/
   ci.yml           ruff, mypy --strict, pytest on every PR
   backfill.yml     process a range of months, one job per month, with profiling
