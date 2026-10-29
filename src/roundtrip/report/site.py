@@ -28,6 +28,7 @@ from typing import Any
 import markdown
 
 from roundtrip import release
+from roundtrip.causal.forecast import MODEL_LABELS
 from roundtrip.report.charts import CHART_CSS, CHART_JS, effect_chart, series_chart
 from roundtrip.report.summary import DESIGN_LABELS
 
@@ -231,21 +232,47 @@ def effect_range(rows: list[dict[str, Any]]) -> tuple[float, float] | None:
     return (min(vals), max(vals)) if vals else None
 
 
-def drift(bundle: dict[str, Any], outcome: str) -> dict[str, Any] | None:
-    """Out-of-sample verdict for the outcome: does any model stay within tolerance over
-    the untreated hold-out year? None when the test is not in the bundle."""
-    block = (bundle.get("synth_oos") or {}).get(outcome)
-    if not block:
+def trust(bundle: dict[str, Any], outcome: str) -> dict[str, Any] | None:
+    """What the counterfactual for the outcome has been tested on: the adopted design,
+    the rolling-origin rule it is selected on (when the bundle has it) and the untreated
+    hold-out year. ``passes`` is the rule's verdict where there is one, else the
+    hold-out's. None when neither test is in the bundle."""
+    oos = (bundle.get("synth_oos") or {}).get(outcome) or {}
+    rolling = (bundle.get("synth_rolling") or {}).get(outcome) or {}
+    synth = (bundle.get("synth") or {}).get(outcome) or {}
+    if not oos and not rolling:
         return None
-    verdict = block.get("verdict", {})
-    simplex = block["models"].get("simplex", {})
-    hold = simplex.get("windows", {}).get("holdout", {})
+    guard = synth.get("guard") or {}
+    design = str(guard.get("design") or synth.get("design") or "simplex")
+    verdict = oos.get("verdict", {})
+    hold = oos.get("models", {}).get(design, {}).get("windows", {}).get("holdout", {})
+    rule = rolling.get("summary", {}).get(design)
+    if rule is not None:
+        passes = bool(rule["passes"])
+    else:
+        passes = any(v.get("passes") for v in verdict.values() if v.get("counts", True))
+    step = (synth.get("params") or {}).get("step") or {}
+    applied = bool(step.get("applied"))
     return {
-        "passes": any(v.get("passes") for v in verdict.values() if v.get("counts", True)),
+        "design": design,
+        "passes": passes,
+        "rule": rule,
+        "all": rolling.get("summary_all", {}).get(design),
+        "rule_origins": rolling.get("rule_origins") or rolling.get("origins") or [],
+        "origins": rolling.get("origins") or [],
+        "tolerance_pct": rolling.get("tolerance_pct"),
+        "holdout": oos.get("windows", {}).get("holdout"),
         "holdout_gap_pct": hold.get("mean_gap_pct"),
-        "holdout": block.get("windows", {}).get("holdout"),
+        "holdout_passes": (verdict.get(design) or {}).get("passes"),
         "models": verdict,
+        "break_week": str(step["break_week"])[:10] if applied else None,
+        "shift_pct": step.get("shift_pct") if applied else None,
+        "synth_effect_pct": (synth.get("windows", {}).get("post") or {}).get("mean_gap_pct"),
     }
+
+
+def _month(iso: str) -> str:
+    return dt.date.fromisoformat(iso[:10]).strftime("%B %Y")
 
 
 # --- sentences ------------------------------------------------------------------------
@@ -274,8 +301,9 @@ def range_label(rng: tuple[float, float] | None) -> str:
 
 
 def finding_sentence(o: Outcome, rng: tuple[float, float] | None, d: dict[str, Any] | None) -> str:
-    """The fixed-template sentence for one outcome, numbers from the bundle. The caveat is
-    added when no counterfactual model stays within tolerance over the untreated year."""
+    """The fixed-template sentence for one outcome, numbers from the bundle. The drift
+    caveat is added when the counterfactual fails its out-of-sample test; when it passes
+    after netting out a dated break, the synthetic control's own number is given."""
     if rng is None:
         return f"{o.noun}: no estimate in this release."
     lo, hi = rng
@@ -295,6 +323,18 @@ def finding_sentence(o: Outcome, rng: tuple[float, float] | None, d: dict[str, A
             " Some or all of this was already under way before the charge: relative to the "
             f"same zones, {o.noun} had drifted by about {gap:+.1f}% over the year before "
             "it, with no policy change. We cannot yet say how much is the policy."
+        )
+    elif (
+        d is not None
+        and d["passes"]
+        and d.get("break_week")
+        and d.get("synth_effect_pct") is not None
+    ):
+        s += (
+            " The synthetic control, the one comparison tested on a year when nothing "
+            f"changed, puts it at {_pct(float(d['synth_effect_pct']))}%; it allows for a fall "
+            f"in the CBD's share of trips in {_month(d['break_week'])}, a year before the "
+            "charge."
         )
     if o.extra:
         s += " " + o.extra
@@ -413,7 +453,7 @@ def _footer(bundle: dict[str, Any], entry: dict[str, Any] | None, repo_url: str)
 def _finding_block(o: Outcome, bundle: dict[str, Any]) -> str:
     rows = post_estimates(bundle, o.key)
     rng = effect_range(rows)
-    d = drift(bundle, o.key)
+    d = trust(bundle, o.key)
     caveat = '<span class="caveat">see caveat</span>' if d is not None and not d["passes"] else ""
     return (
         '<div class="finding">'
@@ -473,7 +513,7 @@ def _estimates_table(bundle: dict[str, Any], outcome: str) -> str:
 def outcome_html(o: Outcome, bundle: dict[str, Any]) -> str:
     rows = post_estimates(bundle, o.key)
     rng = effect_range(rows)
-    d = drift(bundle, o.key)
+    d = trust(bundle, o.key)
     parts = [
         f"<h1>{o.title}</h1>",
         f'<p class="purpose">{html.escape(finding_sentence(o, rng, d))}</p>',
@@ -486,26 +526,90 @@ def outcome_html(o: Outcome, bundle: dict[str, Any]) -> str:
     )
     parts.append(_estimates_table(bundle, o.key))
     parts.append("<h2>Can the comparison be trusted?</h2>")
+    parts.append(_trust_html(d))
+    parts.append(
+        '<p class="links"><a href="method.html">How we measure it</a>'
+        '<a href="report.html">Full report with diagnostics</a></p>'
+    )
+    return "\n".join(parts)
+
+
+def _gap_cell(h: dict[str, Any]) -> str:
+    return f"{float(h['bias_pct']):+.1f}%" if h.get("n_origins") else "n/a"
+
+
+def _trust_html(d: dict[str, Any] | None) -> str:
+    """The "Can the comparison be trusted?" section: the untreated hold-out year and, where
+    the bundle has it, the rolling-origin rule the design is selected on."""
     if d is None:
-        parts.append("<p>The out-of-sample test is not in this release.</p>")
-    else:
+        return "<p>The out-of-sample tests are not in this release.</p>"
+    name = MODEL_LABELS.get(d["design"], d["design"])
+    parts: list[str] = []
+    gap = d.get("holdout_gap_pct")
+    if gap is not None:
         hold = d.get("holdout") or ["", ""]
-        gap = d.get("holdout_gap_pct")
-        verdicts = ", ".join(
-            f"{html.escape(m)}: {'within' if v.get('passes') else 'outside'} tolerance"
-            for m, v in d["models"].items()
-        )
         parts.append(
-            "<p>We fit the counterfactual on 2023 only and check it against the year that "
-            f"followed ({html.escape(str(hold[0]))} to {html.escape(str(hold[1]))}), when "
-            "nothing changed in policy. A trustworthy comparison stays close to the actual "
-            "series there. "
-            + (
-                f"Over that year the CBD ran about {float(gap):+.1f}% from its forecast. "
-                if gap is not None
-                else ""
+            "<p>We test the comparison where the answer is known. Fitted on 2023 alone and "
+            f"asked to forecast the year to {html.escape(str(hold[1]))}, when nothing changed "
+            f"in policy, the synthetic control ({html.escape(name)}) ran about "
+            f"{float(gap):+.1f}% from what happened, "
+            + ("within" if d.get("holdout_passes") else "outside")
+            + " tolerance.</p>"
+        )
+    rule = d.get("rule")
+    if rule:
+        origins, counted = d["origins"], d["rule_origins"]
+        tol = float(d.get("tolerance_pct") or 0)
+        text = (
+            "<p>The stricter test refits it at the end of each quarter from "
+            f"{html.escape(str(origins[0]))} to {html.escape(str(origins[-1]))} and scores the "
+            "next 1 to 3, 4 to 6 and 7 to 12 months, all before the charge was announced. "
+        )
+        if d.get("break_week"):
+            text += (
+                f"In the week of {html.escape(d['break_week'])}, a year before the charge, CBD "
+                f"pickups fell about {abs(float(d['shift_pct'])):.0f}% relative to the "
+                "comparison zones and stayed there, for reasons outside this study. A model "
+                "trained before that week is asked to forecast a shift it cannot see, so a "
+                "quarter-end counts toward the rule only once the shift can be told from the "
+                "seasons in its training data"
+                + (f": from {html.escape(str(counted[0]))} on. " if counted else ". ")
             )
-            + f"Models: {verdicts}. "
+        text += (
+            "A design passes if its mean miss across the counted quarter-ends is within "
+            f"{tol:g} points at every horizon.</p>"
+        )
+        parts.append(text)
+        allh = (d.get("all") or {}).get("horizons", {})
+        both = list(counted) != list(origins) and bool(allh)
+        rows = [
+            '<div class="table-wrap"><table><thead><tr><th>Months ahead</th>'
+            "<th>Mean miss</th><th>Quarter-ends</th>"
+            + ("<th>Mean miss, all</th><th>Quarter-ends</th>" if both else "")
+            + "</tr></thead><tbody>"
+        ]
+        for lab, h in rule["horizons"].items():
+            a = allh.get(lab, {})
+            rows.append(
+                f"<tr><td>{html.escape(lab.replace('-', ' to '))}</td><td>{_gap_cell(h)}</td>"
+                f"<td>{int(h.get('n_origins', 0))}</td>"
+                + (f"<td>{_gap_cell(a)}</td><td>{int(a.get('n_origins', 0))}</td>" if both else "")
+                + "</tr>"
+            )
+        rows.append("</tbody></table></div>")
+        parts.append("".join(rows))
+        parts.append(
+            "<p>"
+            + (
+                "The comparison passes."
+                if rule["passes"]
+                else "The comparison does not pass; read its estimate as indicative only."
+            )
+            + "</p>"
+        )
+    elif gap is not None:
+        parts.append(
+            "<p>"
             + (
                 "The comparison passes."
                 if d["passes"]
@@ -515,10 +619,13 @@ def outcome_html(o: Outcome, bundle: dict[str, Any]) -> str:
             )
             + "</p>"
         )
-    parts.append(
-        '<p class="links"><a href="method.html">How we measure it</a>'
-        '<a href="report.html">Full report with diagnostics</a></p>'
-    )
+    if d.get("break_week") and d["passes"]:
+        parts.append(
+            "<p>Of the three comparisons, only the synthetic control is built to net out that "
+            f"{html.escape(_month(d['break_week']))} shift. The prior-year and pre-window "
+            "comparisons rest on 2024 baselines, after it, and are not tested out of "
+            "sample.</p>"
+        )
     return "\n".join(parts)
 
 

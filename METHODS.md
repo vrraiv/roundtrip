@@ -70,15 +70,20 @@ How agent-written code is validated:
   as if treated; donors whose pre-period fit is more than five times worse than the CBD's
   are excluded from the ranking. The interval on the gap is the treated gap plus or minus
   1.96 placebo-gap standard deviations; the p-value is the rank of the CBD's post/pre RMSPE
-  ratio.
+  ratio. For trips the counterfactual is the *step-adjusted seasonally anchored* design
+  described below (owner decision 13, 29 October 2026), fitted the same way and read in
+  the same form; its placebos refit every donor under the same design. Waits and fares
+  keep the simplex (decision 8).
 - **The 2023 test.** The same design is fitted to 13 November 2023 and evaluated over
   14 November 2023 to 4 January 2024, when nothing happened. Its gap is reported next to
   the real one and bounds what the design can resolve.
 - **Out-of-sample test.** Requested in the review of the 2026-08 release: each
   counterfactual model is trained on 1 January to 13 November 2023 only and forecasts the
-  untreated year that follows with its parameters frozen. The simplex and a ridge
-  regression decide the drift verdict (within 3% over the year and its last quarter);
-  the report marks the trips finding as drift-contaminated when neither passes.
+  untreated year that follows with its parameters frozen. The adopted design for each
+  outcome is judged on it (within 3% over the year and its last quarter); the others are
+  reported. Trained to November 2023 the trips design cannot see the December 2023 break,
+  so it fails this test for the reason the rolling-origin rule below allows for; the
+  rule, not this test, selects the design, and the report says which it was.
 - **Change-point test.** The log share of the CBD in the donor pool over the pre-policy
   period, and each forecast gap, is tested for a single mean shift against a constant,
   a line and a step plus trend (BIC; Quandt sup-F compared with every donor as a
@@ -104,10 +109,16 @@ How agent-written code is validated:
   quarter from June 2023 to September 2024 and scored on untreated days 1 to 3, 4 to 6 and
   7 to 12 months ahead, cut at 13 November 2024. Every donor is refitted as treated at
   every origin for the placebo share. A design passes only if its mean gap across origins
-  is within 2 points at every horizon; RMSPE breaks ties. The table is in the report
-  whatever the outcome, with a second reading over the origins from 18 December 2023
-  on (after the dated level break, which no earlier origin can forecast through),
-  beside the rule and not part of it. Waits and fares keep the simplex design.
+  is within 2 points at every horizon; RMSPE breaks ties. An origin counts toward the
+  rule only if the level break of 18 December 2023 is identifiable in its training
+  window, that is some calendar month is seen on both sides of it in different years,
+  which holds from the March 2024 origin on (owner decision 12, 29 October 2026: an
+  origin that trains before the break is asked to forecast a shift it cannot see; the
+  7 to 12 month horizon then rests on one origin). The table over every origin is
+  reported beside the rule. On 29 October 2026 (run 20261029T142313Z) the step-adjusted
+  seasonally anchored design was the only one within 2 points at every horizon and was
+  adopted (decision 13); the state-space fallback was not run. Waits and fares keep the
+  simplex design.
 - **Comparisons.** Prior-year and pre-window estimates divide the CBD's change by the
   donor pool's change (a difference-in-differences in logs). Intervals are 7-day block
   bootstraps (1000 replications, fixed seed). The post window is the first 364 days after

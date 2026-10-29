@@ -384,11 +384,96 @@ def test_committed_review_records_parse() -> None:
     redesign = records["2026-10-29-synth-redesign"]
     assert not redesign.monthly
     assert (redesign.reviewer, redesign.date) == ("vrraiv", "2026-10-29")
-    assert redesign.summary.startswith("Eleven decisions")
+    assert redesign.summary.startswith("Fourteen decisions")
     assert (
         redesign.text.count("| Yes |")
         + redesign.text.count("| No |")
         + redesign.text.count("| Later |")
-        == 11
+        == 14
     )
     assert records["2026-08"].monthly and records["2026-08"].reviewer == "vrraiv"
+
+
+def test_trust_reads_the_rule_and_the_break() -> None:
+    from roundtrip.report.site import OUTCOME_BY_KEY, finding_sentence, outcome_html, trust
+
+    def horizon(bias: float, n: int, within: bool) -> dict[str, object]:
+        return {
+            "n_origins": n,
+            "bias_pct": bias,
+            "within": within,
+            "rank_p": 0.7,
+            "max_abs_gap_pct": abs(bias),
+            "rmspe_pct": 4.0,
+        }
+
+    rule = {
+        "horizons": {"1-3": horizon(0.2, 3, True), "7-12": horizon(-0.3, 1, True)},
+        "rmspe_pct": 4.0,
+        "passes": True,
+    }
+    every = {
+        "horizons": {"1-3": horizon(-0.3, 6, True), "7-12": horizon(-3.1, 4, False)},
+        "rmspe_pct": 4.5,
+        "passes": False,
+    }
+    origins = ["2023-06-30", "2023-09-30", "2023-12-31", "2024-03-31", "2024-06-30", "2024-09-30"]
+    bundle = {
+        "estimates": [],
+        "windows": {},
+        "synth": {
+            "n_trips": {
+                "design": "seasonal_step",
+                "params": {
+                    "step": {"applied": True, "break_week": "2023-12-18", "shift_pct": -2.9}
+                },
+                "windows": {"post": {"mean_gap_pct": -4.2}},
+                "series": {"day": [], "actual": [], "synthetic": []},
+                "guard": {"design": "seasonal_step", "rolling_passes": True},
+            }
+        },
+        "synth_oos": {
+            "n_trips": {
+                "windows": {"holdout": ["2023-11-14", "2024-11-13"]},
+                "models": {"seasonal_step": {"windows": {"holdout": {"mean_gap_pct": -4.0}}}},
+                "verdict": {"seasonal_step": {"passes": False, "counts": True}},
+            }
+        },
+        "synth_rolling": {
+            "n_trips": {
+                "origins": origins,
+                "rule_origins": origins[3:],
+                "horizons": {"1-3": [1, 3], "7-12": [7, 12]},
+                "tolerance_pct": 2.0,
+                "summary": {"seasonal_step": rule},
+                "summary_all": {"seasonal_step": every},
+                "selected": "seasonal_step",
+            }
+        },
+    }
+    d = trust(bundle, "n_trips")
+    assert d is not None and d["passes"] and d["design"] == "seasonal_step"
+    assert d["break_week"] == "2023-12-18" and d["holdout_passes"] is False
+    s = finding_sentence(OUTCOME_BY_KEY["n_trips"], (-4.8, -4.2), d)
+    assert "puts it at 4.2%" in s and "December 2023" in s and "drifted" not in s
+    page = outcome_html(OUTCOME_BY_KEY["n_trips"], bundle)
+    assert "from 2024-03-31 on" in page and "The comparison passes." in page
+    assert "only the synthetic control" in page and "<td>-3.1%</td>" in page
+    assert "outside tolerance" in page
+    assert trust({"synth": {"n_trips": {}}}, "n_trips") is None
+    # an older bundle with the hold-out only still reads the simplex verdict
+    old = {
+        "synth_oos": {
+            "n_trips": {
+                "windows": {"holdout": ["a", "b"]},
+                "models": {"simplex": {"windows": {"holdout": {"mean_gap_pct": -4.5}}}},
+                "verdict": {
+                    "simplex": {"passes": False, "counts": True},
+                    "ridge": {"passes": False, "counts": True},
+                },
+            }
+        }
+    }
+    o = trust(old, "n_trips")
+    assert o is not None and not o["passes"] and o["holdout_gap_pct"] == -4.5
+    assert "drifted by about -4.5%" in finding_sentence(OUTCOME_BY_KEY["n_trips"], (-5.6, -4.6), o)

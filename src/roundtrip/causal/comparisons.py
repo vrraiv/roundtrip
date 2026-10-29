@@ -23,6 +23,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from roundtrip.causal.forecast import MODEL_LABELS
 from roundtrip.causal.synth import PlaceboInSpace, SynthFit
 from roundtrip.config import Settings
 
@@ -227,6 +228,6 @@ def from_synth(fit: SynthFit, placebo: PlaceboInSpace, outcome: str, window: str
         lo,
         hi,
         int(w["n_days"]),
-        f"placebo-in-space p = {placebo.p_value:.2f} on the RMSPE ratio; interval from the"
-        " placebo gap spread",
+        f"{MODEL_LABELS.get(fit.design, fit.design)}; placebo-in-space p = "
+        f"{placebo.p_value:.2f} on the RMSPE ratio; interval from the placebo gap spread",
     )

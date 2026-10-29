@@ -36,7 +36,7 @@ from roundtrip.causal.event_study import (
     placebo_dates,
     placebo_zones,
 )
-from roundtrip.causal.synth import PlaceboInSpace, SynthFit, placebo_in_space, synthetic_control
+from roundtrip.causal.synth import PlaceboInSpace, SynthFit, placebo_in_space
 from roundtrip.config import Settings
 from roundtrip.db import connect
 from roundtrip.ingest.manifest import Manifest
@@ -67,12 +67,20 @@ def _usable_donors(wide: pd.DataFrame, start: dt.date, end: dt.date) -> pd.DataF
     return wide[keep]
 
 
+def _design(settings: Settings, outcome: str) -> str:
+    """The headline design for the outcome: the trips design is an owner decision (13);
+    waits and fares keep the simplex (8)."""
+    return settings.synth_trips_design if outcome == "n_trips" else "simplex"
+
+
 def _synth_block(
     fit: SynthFit, placebos: dict[str, PlaceboInSpace], groups: ZoneGroups
 ) -> dict[str, Any]:
     top = fit.weights.sort_values(ascending=False)
     top = top[top > 0.005]
     return {
+        "design": fit.design,
+        "params": fit.params,
         "fit_start": fit.fit_start.isoformat(),
         "fit_end": fit.fit_end.isoformat(),
         "pre_rmspe": fit.pre_rmspe,
@@ -134,20 +142,27 @@ def run_causal(settings: Settings, out_dir: Path | None = None, quick: bool = Fa
     for outcome in settings.synth_outcomes:
         wide = _usable_donors(zone_series(day, outcome, groups.donors), data_start, data_end)
         treated = cbd[outcome]
-        fit = synthetic_control(outcome, treated, wide, data_start, fit_end)
+        design = _design(settings, outcome)
+        refit = forecast.synth_refit(design)
+        fit = forecast.synth_fit(design, outcome, treated, wide, data_start, fit_end)
         placebos: dict[str, PlaceboInSpace] = {}
         for name, (s, e) in windows.items():
             fit.evaluate(name, s, e)
-            placebos[name] = placebo_in_space(fit, wide, name, s, e)
+            placebos[name] = placebo_in_space(fit, wide, name, s, e, refit=refit)
         synth_fits[outcome] = (fit, placebos)
         block = _synth_block(fit, placebos, groups)
         # The 2023 test: same window one year earlier, nothing happened.
         if data_end >= test_end and test_fit_end > data_start + dt.timedelta(days=60):
-            tfit = synthetic_control(outcome, treated, wide, data_start, test_fit_end)
+            tfit = forecast.synth_fit(design, outcome, treated, wide, data_start, test_fit_end)
             tfit.evaluate("placebo_2023", settings.placebo_window_start, test_end)
             tplac = {
                 "placebo_2023": placebo_in_space(
-                    tfit, wide, "placebo_2023", settings.placebo_window_start, test_end
+                    tfit,
+                    wide,
+                    "placebo_2023",
+                    settings.placebo_window_start,
+                    test_end,
+                    refit=refit,
                 )
             }
             block["test_2023"] = _synth_block(tfit, tplac, groups)
@@ -156,8 +171,9 @@ def run_causal(settings: Settings, out_dir: Path | None = None, quick: bool = Fa
             figures.synth_plot(fit, None, settings, fig_dir / f"synth_{outcome}.png")
         synth[outcome] = block
         log.info(
-            "synth %s: pre-RMSPE %.3f, windows %s",
+            "synth %s (%s): pre-RMSPE %.3f, windows %s",
             outcome,
+            design,
             fit.pre_rmspe,
             {k: round(v["mean_gap_pct"], 2) for k, v in fit.windows.items()},
         )
@@ -185,7 +201,9 @@ def run_causal(settings: Settings, out_dir: Path | None = None, quick: bool = Fa
                 settings.oos_train_end,
                 oos_windows,
             )
-            block["verdict"] = forecast.drift_verdict(block, settings.oos_drift_tolerance_pct)
+            block["verdict"] = forecast.drift_verdict(
+                block, settings.oos_drift_tolerance_pct, counts=(_design(settings, outcome),)
+            )
             oos_fits[outcome] = fits
             for res in block["models"].values():
                 w = res["params"].get("weights")
@@ -205,9 +223,10 @@ def run_causal(settings: Settings, out_dir: Path | None = None, quick: bool = Fa
                 },
             )
 
-    # --- rolling-origin validation (owner decision 2, 2026-10-28) ----------------------
+    # --- rolling-origin validation (owner decisions 2 and 12) --------------------------
     # The selection rule for the trips design: every model trained through each quarterly
-    # origin and scored 1 to 3, 4 to 6 and 7 to 12 months ahead on untreated days only.
+    # origin and scored 1 to 3, 4 to 6 and 7 to 12 months ahead on untreated days only;
+    # an origin counts only where the December 2023 break is identifiable in training.
     synth_rolling: dict[str, Any] = {}
     if data_end >= settings.oos_holdout_end:
         for outcome in settings.synth_outcomes:
@@ -222,12 +241,12 @@ def run_causal(settings: Settings, out_dir: Path | None = None, quick: bool = Fa
                 fit_end,
                 settings.rolling_min_days,
                 settings.rolling_bias_tolerance_pct,
-                after=settings.rolling_break_week,
+                break_week=settings.rolling_break_week,
             )
             synth_rolling[outcome] = rblock
             figures.rolling_plot(rblock, outcome, fig_dir / f"synth_rolling_{outcome}.png")
             log.info(
-                "rolling %s: bias by horizon %s; selected %s; after the break %s",
+                "rolling %s: bias by horizon %s; selected %s; over every origin %s",
                 outcome,
                 {
                     m: {
@@ -237,8 +256,23 @@ def run_causal(settings: Settings, out_dir: Path | None = None, quick: bool = Fa
                     for m, s in rblock["summary"].items()
                 },
                 rblock["selected"],
-                rblock.get("selected_after"),
+                rblock.get("selected_all"),
             )
+
+    # --- design guard (owner decision 13, 2026-10-29) ----------------------------------
+    # The adopted design must pass the rolling-origin rule; its 2023 hold-out result is
+    # kept beside it. The report's dashboard and the site read this block.
+    for outcome in settings.synth_outcomes:
+        design = _design(settings, outcome)
+        rule = (synth_rolling.get(outcome) or {}).get("summary", {}).get(design)
+        hold = (synth_oos.get(outcome) or {}).get("verdict", {}).get(design)
+        synth[outcome]["guard"] = {
+            "design": design,
+            "rolling_passes": None if rule is None else bool(rule["passes"]),
+            "rolling_selected": (synth_rolling.get(outcome) or {}).get("selected"),
+            "holdout_passes": None if hold is None else bool(hold["passes"]),
+            "holdout_gap_pct": None if hold is None else hold["holdout_gap_pct"],
+        }
 
     # --- change-point tests and design variants (owner, 2026-10-28) --------------------
     # Is the CBD's loss of share a step or a trend? Test the log share of the CBD in the

@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from roundtrip.causal.data import OUTCOME_LABELS
+from roundtrip.causal.forecast import MODEL_LABELS
 from roundtrip.config import Settings
 from roundtrip.report.summary import (
     DESIGN_LABELS,
@@ -127,14 +128,29 @@ def _synth_diag(bundle: dict[str, Any]) -> str:
     return "\n".join(out) if out else "_2023 test not available (needs data through January 2024)._"
 
 
-OOS_LABELS = {
-    "simplex": "simplex weights (current design)",
-    "ridge": "ridge regression",
-    "anchored": "anchored (last 90 days)",
-    "growth": "growth-rate (weekly log changes)",
-    "seasonal": "seasonally anchored (last 12 months)",
-    "seasonal_step": "seasonally anchored, step-adjusted",
-}
+OOS_LABELS = MODEL_LABELS
+
+
+def _synth_design_sentence(bundle: dict[str, Any]) -> str:
+    """Which model stands behind the synthetic control for trips (owner decision 13)."""
+    s = bundle["synth"].get("n_trips", {})
+    design = s.get("design", "simplex")
+    if design == "simplex":
+        return "Every outcome uses those simplex weights alone."
+    p = s.get("params", {})
+    text = (
+        f"For trips the counterfactual is the *{OOS_LABELS.get(design, design)}* design "
+        "(owner decision 13, 29 October 2026): the simplex weights plus a calendar-month "
+        "profile of the fit residual over the last twelve months of the fit window and a "
+        f"level over its last {p.get('anchor_days', 90)} days net of that profile"
+    )
+    step = p.get("step") or {}
+    if step.get("applied"):
+        text += (
+            f", after netting out a level shift of {_fmt(step['shift_pct'])} points in the "
+            f"CBD dated to the week of {str(step['break_week'])[:10]}"
+        )
+    return text + ". Waits and fares use the simplex weights alone."
 
 
 def _oos_section(bundle: dict[str, Any]) -> str:
@@ -169,40 +185,43 @@ def _oos_section(bundle: dict[str, Any]) -> str:
                 f"{r['placebo']['rank_p']:.2f} | {'yes' if v['passes'] else 'no'}"
                 f"{'' if v.get('counts', True) else ' (reported only)'} |"
             )
-    passing = {
-        o: [
-            OOS_LABELS.get(m, m)
-            for m, v in b["verdict"].items()
-            if v["passes"] and v.get("counts", True)
-        ]
-        for o, b in oos.items()
-    }
     lines += [""]
-    for o, ms in passing.items():
+    synth_blocks = bundle.get("synth", {})
+    for o, b in oos.items():
         label = OUTCOME_LABELS.get(o, o)
-        if ms:
-            lines.append(f"- **{label}**: within tolerance out of sample: {', '.join(ms)}.")
-        else:
-            r = oos[o]["models"]["simplex"]
-            late = r["windows"]["holdout_late"]["mean_gap_pct"]
-            post = r["windows"].get("post", {}).get("mean_gap_pct")
-            tr = r["trend"]
-            trend_post = tr["extrapolated"].get("post")
-            readings = ""
-            if post is not None and trend_post is not None:
-                readings = (
-                    f" How much of the post gap of {_fmt(post)}% is policy depends entirely on "
-                    "what the drift would have done, and the data cannot say. If it stayed at "
-                    f"its last-quarter level ({_fmt(late)}%), about {_fmt(post - late)}% "
-                    f"remains. If it kept its hold-out trend ({_fmt(tr['slope_pct_per_month'], 2)}"
-                    f"% a month, {_fmt(trend_post)}% by the middle of the post year), about "
-                    f"{_fmt(post - trend_post)}% remains. Both are assumptions, not estimates."
-                )
+        guard = (synth_blocks.get(o) or {}).get("guard") or {}
+        design = guard.get("design", "simplex")
+        v = b["verdict"].get(design, {})
+        name = OOS_LABELS.get(design, design)
+        gap = v.get("holdout_gap_pct")
+        gap_txt = "n/a" if gap is None else f"{_fmt(gap)}%"
+        if v.get("passes"):
             lines.append(
-                f"- **{label}**: no model stays within tolerance over the untreated year. "
-                "Its anticipation and post gaps cannot be separated from drift with these "
-                "donors." + readings
+                f"- **{label}**: the adopted design ({name}) stays within tolerance over the "
+                f"untreated year ({gap_txt})."
             )
+            continue
+        step = ((synth_blocks.get(o) or {}).get("params") or {}).get("step") or {}
+        why = ""
+        if step.get("applied"):
+            why = (
+                f" Trained to {tr[1]} it cannot see the level shift of the week of "
+                f"{str(step['break_week'])[:10]} that it nets out on the full fit window, and "
+                "no model trained before a break can forecast through it."
+            )
+        rule = guard.get("rolling_passes")
+        verdict = (
+            ", which it passes."
+            if rule
+            else ", which it does not pass either."
+            if rule is False
+            else "."
+        )
+        lines.append(
+            f"- **{label}**: the adopted design ({name}) runs {gap_txt} from the actual series "
+            f"over the untreated year, outside tolerance.{why} The rolling-origin rule below "
+            f"is the test the design is selected on{verdict}"
+        )
     figs = "\n\n".join(
         f"![Out-of-sample forecasts: {OUTCOME_LABELS.get(o, o)}](figures/synth_oos_{o}.png)"
         for o in oos
@@ -218,74 +237,59 @@ def _rolling_section(bundle: dict[str, Any]) -> str:
     labels = list(first["horizons"])
     tol = first["tolerance_pct"]
     origins = first["origins"]
-    lines = [
-        f"Each model is trained from {first['train_start']} through each of {len(origins)} "
-        f"origins ({origins[0]} to {origins[-1]}, the end of each quarter) and scored on the "
-        "untreated days 1 to 3, 4 to 6 and 7 to 12 months ahead, cut at "
-        f"{first['end']}. The cells are the mean gap across origins (actual minus forecast, "
-        f"% of forecast) with the number of origins scored; a model passes if that mean is "
-        f"within {tol:g} points at every horizon, and RMSPE breaks ties. Placebo share is "
-        "the share of donor zones whose own gap at the same origin and horizon is at least "
-        "as large as the CBD's, averaged over origins. This is the selection rule for the "
-        "trips design (owner decision, 28 October 2026); waits and fares are shown for "
-        "comparison and keep their designs.",
-        "",
+    rule_origins = first.get("rule_origins", origins)
+    header = [
         "| Outcome | Model | "
         + " | ".join(f"{lab.replace('-', ' to ')} months" for lab in labels)
         + " | RMSPE | Placebo share | Passes |",
         "|---|---|" + "---|" * len(labels) + "---|---|---|",
     ]
+    lines = [
+        f"Each model is trained from {first['train_start']} through each of {len(origins)} "
+        f"origins ({origins[0]} to {origins[-1]}, the end of each quarter) and scored on the "
+        "untreated days 1 to 3, 4 to 6 and 7 to 12 months ahead, cut at "
+        f"{first['end']}. The cells are the mean gap across origins (actual minus forecast, "
+        "% of forecast) with the number of origins scored; a model passes if that mean is "
+        f"within {tol:g} points at every horizon, and RMSPE breaks ties. Placebo share is "
+        "the share of donor zones whose own gap at the same origin and horizon is at least "
+        "as large as the CBD's, averaged over origins. This is the selection rule for the "
+        "trips design (owner decisions 2 and 12, 28 and 29 October 2026); waits and fares "
+        "are shown for comparison and keep their design.",
+    ]
+    if first.get("break_week"):
+        lines += [
+            "",
+            "An origin counts toward the rule only if the level break of the week of "
+            f"{first['break_week']} is identifiable in its training window, that is some "
+            "calendar month is seen on both sides of the break in different years: an origin "
+            "that trains before the break is asked to forecast a shift it cannot see. "
+            f"Origins counted: {', '.join(rule_origins) if rule_origins else 'none'}. The "
+            "table over every origin follows, for the record.",
+        ]
+    lines += ["", *header]
     for o, b in rolling.items():
         lines += _rolling_rows(o, b["summary"], labels)
     lines.append("")
     for o, b in rolling.items():
-        label = OUTCOME_LABELS.get(o, o)
-        if b["selected"]:
-            names = ", ".join(OOS_LABELS.get(m, m) for m in b["ranking"])
-            lines.append(
-                f"- **{label}**: within {tol:g} points at every horizon: {names} (in order of "
-                f"RMSPE). Selected: {OOS_LABELS.get(b['selected'], b['selected'])}."
-            )
-        else:
-            worst = {
-                m: max(
-                    (abs(h["bias_pct"]) for h in s["horizons"].values() if h.get("n_origins")),
-                    default=float("nan"),
-                )
-                for m, s in b["summary"].items()
-            }
-            best = min(worst, key=lambda m: worst[m])
-            lines.append(
-                f"- **{label}**: no model is within {tol:g} points at every horizon; the "
-                f"closest is {OOS_LABELS.get(best, best)} (largest mean gap "
-                f"{worst[best]:.1f} points)."
-            )
+        lines.append(_rolling_verdict(o, b["summary"], b.get("ranking", []), b["selected"], tol))
     lines.append(
         f"\nScoring windows containing Christmas: {first['holiday_windows']} (the protocol "
         "asks for at least two, so the holiday artefact counts against a design)."
     )
-    if first.get("summary_after"):
-        lines += [
-            "",
-            f"The same table over the origins from {first['after_origin']} on, after the "
-            "level break of December 2023 that the change-point test dated. No earlier origin "
-            "can forecast through that break, so this reading separates the break from the "
-            "design. It is reported beside the rule, not as the rule; fewer origins stand "
-            "behind each cell.",
-            "",
-            lines[2],
-            lines[3],
-        ]
+    if first.get("summary_all") and list(rule_origins) != list(origins):
+        lines += ["", f"Over every origin ({origins[0]} to {origins[-1]}):", "", *header]
         for o, b in rolling.items():
-            lines += _rolling_rows(o, b["summary_after"], labels)
+            lines += _rolling_rows(o, b["summary_all"], labels)
+        lines.append("")
         for o, b in rolling.items():
-            sel = b.get("selected_after")
             lines.append(
-                f"\n- **{OUTCOME_LABELS.get(o, o)}**, origins after the break: "
-                + (
-                    f"selected {OOS_LABELS.get(sel, sel)}."
-                    if sel
-                    else f"no model within {tol:g} points at every horizon."
+                _rolling_verdict(
+                    o,
+                    b["summary_all"],
+                    b.get("ranking_all", []),
+                    b.get("selected_all"),
+                    tol,
+                    " over every origin",
                 )
             )
     figs = "\n\n".join(
@@ -293,6 +297,35 @@ def _rolling_section(bundle: dict[str, Any]) -> str:
         for o in rolling
     )
     return "\n".join(lines) + "\n\n" + figs
+
+
+def _rolling_verdict(
+    outcome: str,
+    summary: dict[str, Any],
+    ranking: list[str],
+    selected: str | None,
+    tol: float,
+    suffix: str = "",
+) -> str:
+    label = OUTCOME_LABELS.get(outcome, outcome)
+    if selected:
+        names = ", ".join(OOS_LABELS.get(m, m) for m in ranking)
+        return (
+            f"- **{label}**{suffix}: within {tol:g} points at every horizon: {names} (in order "
+            f"of RMSPE). Selected: {OOS_LABELS.get(selected, selected)}."
+        )
+    worst = {
+        m: max(
+            (abs(h["bias_pct"]) for h in s["horizons"].values() if h.get("n_origins")),
+            default=float("nan"),
+        )
+        for m, s in summary.items()
+    }
+    best = min(worst, key=lambda m: worst[m])
+    return (
+        f"- **{label}**{suffix}: no model is within {tol:g} points at every horizon; the "
+        f"closest is {OOS_LABELS.get(best, best)} (largest mean gap {worst[best]:.1f} points)."
+    )
 
 
 def _rolling_rows(outcome: str, summary: dict[str, Any], labels: list[str]) -> list[str]:
@@ -436,8 +469,9 @@ Three comparisons, all reported (owner design, see METHODS.md):
 2. **Synthetic control.** A weighted combination of control zones that tracks the CBD
    from {bundle["synth"]["n_trips"]["fit_start"]} to {bundle["synth"]["n_trips"]["fit_end"]}
    (the day before the announcement). Weights are non-negative and sum to one on
-   mean-scaled daily series. Inference is placebo-in-space: every donor is refitted as if
-   treated. The design is first tested on the same calendar window a year earlier
+   mean-scaled daily series. {_synth_design_sentence(bundle)} Inference is
+   placebo-in-space: every donor is refitted as if treated, the same way. The design is
+   first tested on the same calendar window a year earlier
    ({d["placebo_window"][0]} to {d["placebo_window"][1]}), when nothing happened.
 3. **Pre-window.** CBD means over the window versus the clean pre-period from
    {d["pre_window_start"]} to the day before the announcement, with the donor pool's change

@@ -15,6 +15,7 @@ different windows.
 from __future__ import annotations
 
 import datetime as dt
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -57,6 +58,8 @@ class SynthFit:
     windows: dict[str, dict[str, float]] = field(default_factory=dict)
     # name -> {start, end, mean_actual, mean_synthetic, mean_gap, mean_gap_pct, rmspe,
     #          rmspe_ratio}
+    design: str = "simplex"  # the model behind ``synthetic`` (see forecast.synth_fit)
+    params: dict[str, Any] = field(default_factory=dict)  # that model's parameters
 
     def evaluate(self, name: str, start: dt.date, end: dt.date) -> dict[str, float]:
         mask = (self.actual.index >= pd.Timestamp(start)) & (self.actual.index <= pd.Timestamp(end))
@@ -159,21 +162,22 @@ def placebo_in_space(
     start: dt.date,
     end: dt.date,
     max_pre_ratio: float = 5.0,
+    refit: Callable[..., SynthFit] | None = None,
 ) -> PlaceboInSpace:
     """Refit with each donor as the treated unit. Donors whose pre-fit is much worse than
     the CBD's (pre-RMSPE more than ``max_pre_ratio`` times) are dropped from the ranking,
     as is standard, because a unit that cannot be matched in the pre-period says nothing
-    about the post-period."""
+    about the post-period. ``refit`` builds each placebo the way the treated unit was
+    fitted (``forecast.synth_refit``); the default is the simplex here."""
+    fitter = refit or synthetic_control
     treated = fit.windows[window] if window in fit.windows else fit.evaluate(window, start, end)
     ratios: dict[int, float] = {}
     gaps: dict[int, float] = {}
     for z in donors.columns:
         others = donors.drop(columns=[z])
         try:
-            pf = synthetic_control(
-                fit.outcome, donors[z], others, fit.fit_start, fit.fit_end, unit=str(z)
-            )
-        except ValueError:
+            pf = fitter(fit.outcome, donors[z], others, fit.fit_start, fit.fit_end, unit=str(z))
+        except (ValueError, np.linalg.LinAlgError):
             continue
         if fit.pre_rmspe and pf.pre_rmspe > max_pre_ratio * fit.pre_rmspe:
             continue
