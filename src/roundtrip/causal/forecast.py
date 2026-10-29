@@ -101,34 +101,46 @@ def _growth(
 
 
 def _seasonal(
-    resid: pd.Series, allow_step: bool
+    resid: pd.Series, break_series: pd.Series | None
 ) -> tuple[float, dict[int, float], dict[str, Any] | None, int]:
     """Calendar-month profile of the training residual (treated minus synthetic, on
     the mean-scaled series) over the last ``SEASON_DAYS`` of training, de-meaned over
     the months present, and the level over the last ``ANCHOR_DAYS`` net of that
-    profile. With ``allow_step`` a single level shift inside training is netted out first,
-    the days before the break lifted to the level after it, so a break is not read as
-    seasonality. The break week is where ``change_point`` prefers a step (with or without
-    a trend beside it, since a seasonal residual can look trended over part of a year); the
-    shift is the mean difference between the same calendar months after and before it, not
-    the step test's own estimate, which the season would contaminate (months with at
-    least ``STEP_MONTH_DAYS`` days on each side, in different years), because within one
-    year a step and a seasonal profile are not separable. With no such month the step is
-    left alone and the design reduces to ``seasonal``."""
+    profile. With ``break_series`` a single level shift inside training is netted out
+    first, the days before the break lifted to the level after it, so a break is not read
+    as seasonality. The break week is where ``change_point`` prefers a step on that series
+    (with or without a trend beside it, since a seasonal series can look trended over part
+    of a year); it is tested on the model-free log share of the treated unit in the donor
+    total rather than on the residual, whose weights absorb part of a break. The shift is
+    the mean difference of the residual between the same calendar months after and before
+    the break, not the step test's own estimate, which the season would contaminate
+    (months with at least ``STEP_MONTH_DAYS`` days on each side, in different years),
+    because within one year a step and a seasonal profile are not separable. With no such
+    month the step is left alone and the design reduces to ``seasonal``. The test's
+    reading is returned either way, under ``step_test``."""
     step: dict[str, Any] | None = None
     r = resid.astype(float).copy()
-    if allow_step:
-        cp = change_point(r)
+    if break_series is not None:
+        cp = change_point(break_series)
+        step = {
+            "step_test": {
+                k: cp[k] for k in ("preferred", "break_week", "shift", "sup_f") if k in cp
+            },
+            "applied": False,
+        }
         if cp.get("preferred") in ("step", "step_and_trend"):
             brk = pd.Timestamp(cp["break_week"])
             shift, months = _same_month_shift(r, brk)
             if months:
                 r[r.index < brk] += shift
-                step = {
-                    "break_week": cp["break_week"],
-                    "shift_pct": 100 * shift,
-                    "months": months,
-                }
+                step.update(
+                    {
+                        "applied": True,
+                        "break_week": cp["break_week"],
+                        "shift_pct": 100 * shift,
+                        "months": months,
+                    }
+                )
     last = r[r.index > r.index[-1] - pd.Timedelta(days=SEASON_DAYS)]
     by_month = last.groupby(last.index.month).mean()
     profile = {int(m): float(v - by_month.mean()) for m, v in by_month.items()}
@@ -278,8 +290,16 @@ def fit_forecast(
         }
     elif model in ("seasonal", "seasonal_step"):
         w = fit_weights(ys, xs)
-        resid = pd.Series(ys - xs @ w, index=pd.DatetimeIndex(idx[train]))
-        a, profile, step, n_late = _seasonal(resid, model == "seasonal_step")
+        train_days = pd.DatetimeIndex(idx[train])
+        resid = pd.Series(ys - xs @ w, index=train_days)
+        share: pd.Series | None = None
+        if model == "seasonal_step":
+            total = x_tr.sum(axis=1)
+            ok = (y_tr > 0) & (total > 0)
+            # the break is tested on the log share in the donor total (100 x log, so the
+            # test's shift reads in points), on the days where that share exists
+            share = pd.Series(100 * np.log(y_tr[ok] / total[ok]), index=train_days[ok])
+        a, profile, step, n_late = _seasonal(resid, share)
         d = np.array([profile.get(int(m), 0.0) for m in pd.DatetimeIndex(idx).month])
         pred = (a + d + (x_all / scale_x) @ w) * scale_y
         params["intercept_pct"] = 100 * a

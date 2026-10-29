@@ -94,7 +94,7 @@ def test_seasonal_designs_carry_a_treated_only_season_forward() -> None:
     assert abs(gaps["seasonal"]) < 1.5, gaps
     assert gaps["seasonal_step"] == gaps["seasonal"], gaps
     assert gaps["anchored"] > 3, gaps
-    assert f.params["step"] is None
+    assert f.params["step"]["applied"] is False  # the cycle looks like a step, unidentified
 
 
 def test_step_adjusted_seasonal_design_nets_out_an_identified_break() -> None:
@@ -112,7 +112,7 @@ def test_step_adjusted_seasonal_design_nets_out_an_identified_break() -> None:
         "seasonal_step", "n_trips", treated, donors, dt.date(2023, 1, 1), train_end
     )
     step = adjusted.params["step"]
-    assert step is not None
+    assert step is not None and step["applied"]
     assert abs((pd.Timestamp(step["break_week"]) - pd.Timestamp("2023-05-30")).days) <= 21
     assert -7 < step["shift_pct"] < -3
     assert step["months"] == [1, 2, 3]
