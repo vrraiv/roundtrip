@@ -222,11 +222,12 @@ def run_causal(settings: Settings, out_dir: Path | None = None, quick: bool = Fa
                 fit_end,
                 settings.rolling_min_days,
                 settings.rolling_bias_tolerance_pct,
+                after=settings.rolling_break_week,
             )
             synth_rolling[outcome] = rblock
             figures.rolling_plot(rblock, outcome, fig_dir / f"synth_rolling_{outcome}.png")
             log.info(
-                "rolling %s: bias by horizon %s; selected %s",
+                "rolling %s: bias by horizon %s; selected %s; after the break %s",
                 outcome,
                 {
                     m: {
@@ -236,6 +237,7 @@ def run_causal(settings: Settings, out_dir: Path | None = None, quick: bool = Fa
                     for m, s in rblock["summary"].items()
                 },
                 rblock["selected"],
+                rblock.get("selected_after"),
             )
 
     # --- change-point tests and design variants (owner, 2026-10-28) --------------------

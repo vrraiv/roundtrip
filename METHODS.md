@@ -90,14 +90,24 @@ How agent-written code is validated:
   changes in log trips, the counterfactual a weighted geometric index of the donors
   pinned to the CBD's last-90-day log level). A free intercept and synthetic
   difference-in-differences were tried and dropped: the first reproduced the simplex,
-  the second rested on ten effective days of time weights.
+  the second rested on ten effective days of time weights. Two *seasonally anchored*
+  designs (owner decision, 29 October 2026) take the season out of the anchor: the
+  simplex weights plus a calendar-month profile of the training residual over the last
+  twelve training months and a level over the last 90 days net of that profile; the
+  *step-adjusted* one first nets out a level shift inside the training window when the
+  change-point test prefers a step there, so a break is not read as seasonality. The
+  shift is measured on calendar months seen on both sides of the break in different
+  years (the same-month difference), because within one year a step and a seasonal
+  profile are not separable; with no such month the step is left alone.
 - **Rolling-origin validation.** The selection rule for the trips design (owner decision,
   28 October 2026). Every candidate is trained from 1 January 2023 through the end of each
   quarter from June 2023 to September 2024 and scored on untreated days 1 to 3, 4 to 6 and
   7 to 12 months ahead, cut at 13 November 2024. Every donor is refitted as treated at
   every origin for the placebo share. A design passes only if its mean gap across origins
   is within 2 points at every horizon; RMSPE breaks ties. The table is in the report
-  whatever the outcome. Waits and fares keep the simplex design.
+  whatever the outcome, with a second reading over the origins from 18 December 2023
+  on (after the dated level break, which no earlier origin can forecast through),
+  beside the rule and not part of it. Waits and fares keep the simplex design.
 - **Comparisons.** Prior-year and pre-window estimates divide the CBD's change by the
   donor pool's change (a difference-in-differences in logs). Intervals are 7-day block
   bootstraps (1000 replications, fixed seed). The post window is the first 364 days after

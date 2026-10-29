@@ -27,6 +27,17 @@ the two above but not part of the drift verdict until adopted:
   free; the counterfactual is a weighted geometric index of the donors pinned to the
   CBD's mean log level over the last ``ANCHOR_DAYS`` of training.
 
+Two seasonally anchored designs (owner decision 9, 2026-10-29), after the rolling-origin
+validation showed the forecast gap has a calendar shape the donors do not share:
+
+- ``seasonal``: the simplex weights plus a calendar-month profile of the training
+  residual over the last ``SEASON_DAYS`` of training (de-meaned over the months seen;
+  months not seen get zero) and a level over the last ``ANCHOR_DAYS`` net of that
+  profile. The anchored design with the season taken out of the anchor.
+- ``seasonal_step``: the same, after netting out a single level shift inside the
+  training window when ``change_point`` prefers a step on the training residual.
+  Without this a break inside the profile's twelve months is read as seasonality.
+
 Two more were run through the 2023 hold-out on 28 October 2026 and dropped: a simplex
 with a free intercept and no sum constraint (Doudchenko and Imbens 2016) reproduced the
 simplex to the second decimal, and synthetic difference-in-differences (Arkhangelsky et
@@ -39,7 +50,9 @@ donor pool) for a single mean shift against a constant and a straight trend.
 ``rolling_origin`` is the selection rule for the trips design: train through each of
 several origins, score the untreated days 1 to 3, 4 to 6 and 7 to 12 months ahead, and
 pass a design only if its mean gap across origins is within tolerance at every horizon.
-With one origin any estimator can be tuned to pass; with six it has to forecast.
+With one origin any estimator can be tuned to pass; with six it has to forecast. The
+same statistics over the origins from a given date on (``after``) are reported beside
+the rule, so a level break that no earlier origin could see can be read separately.
 """
 
 from __future__ import annotations
@@ -53,8 +66,17 @@ import pandas as pd
 
 from roundtrip.causal.synth import fit_weights
 
-MODELS: tuple[str, ...] = ("simplex", "ridge", "anchored", "growth")
+MODELS: tuple[str, ...] = (
+    "simplex",
+    "ridge",
+    "anchored",
+    "growth",
+    "seasonal",
+    "seasonal_step",
+)
 ANCHOR_DAYS = 90
+SEASON_DAYS = 365
+STEP_MONTH_DAYS = 20  # a year-month counts in the step comparison with this many days
 GROWTH_LAG_DAYS = 7
 # models whose hold-out result decides the drift verdict (the others are reported)
 VERDICT_MODELS: tuple[str, ...] = ("simplex", "ridge")
@@ -76,6 +98,84 @@ def _growth(
     tail = logs.to_numpy()[-n_late:]
     a = float(np.mean(tail[:, 0] - tail[:, 1:] @ w))
     return a, w
+
+
+def _seasonal(
+    resid: pd.Series, break_series: pd.Series | None
+) -> tuple[float, dict[int, float], dict[str, Any] | None, int]:
+    """Calendar-month profile of the training residual (treated minus synthetic, on
+    the mean-scaled series) over the last ``SEASON_DAYS`` of training, de-meaned over
+    the months present, and the level over the last ``ANCHOR_DAYS`` net of that
+    profile. With ``break_series`` a single level shift inside training is netted out
+    first, the days before the break lifted to the level after it, so a break is not read
+    as seasonality. The break week is where ``change_point`` prefers a step on that series
+    (with or without a trend beside it, since a seasonal series can look trended over part
+    of a year); it is tested on the model-free log share of the treated unit in the donor
+    total rather than on the residual, whose weights absorb part of a break. The shift is
+    the mean difference of the residual between the same calendar months after and before
+    the break, not the step test's own estimate, which the season would contaminate
+    (months with at least ``STEP_MONTH_DAYS`` days on each side, in different years),
+    because within one year a step and a seasonal profile are not separable. With no such
+    month the step is left alone and the design reduces to ``seasonal``. The test's
+    reading is returned either way, under ``step_test``."""
+    step: dict[str, Any] | None = None
+    r = resid.astype(float).copy()
+    if break_series is not None:
+        cp = change_point(break_series)
+        step = {
+            "step_test": {
+                k: cp[k] for k in ("preferred", "break_week", "shift", "sup_f") if k in cp
+            },
+            "applied": False,
+        }
+        if cp.get("preferred") in ("step", "step_and_trend"):
+            brk = pd.Timestamp(cp["break_week"])
+            shift, months = _same_month_shift(r, brk)
+            if months:
+                r[r.index < brk] += shift
+                step.update(
+                    {
+                        "applied": True,
+                        "break_week": cp["break_week"],
+                        "shift_pct": 100 * shift,
+                        "months": months,
+                    }
+                )
+    last = r[r.index > r.index[-1] - pd.Timedelta(days=SEASON_DAYS)]
+    by_month = last.groupby(last.index.month).mean()
+    profile = {int(m): float(v - by_month.mean()) for m, v in by_month.items()}
+    d = np.array([profile.get(int(m), 0.0) for m in pd.DatetimeIndex(r.index).month])
+    n_late = min(ANCHOR_DAYS, len(r))
+    a = float(np.mean(r.to_numpy()[-n_late:] - d[-n_late:]))
+    return a, profile, step, n_late
+
+
+def _same_month_shift(r: pd.Series, brk: pd.Timestamp) -> tuple[float, list[int]]:
+    """Level shift at ``brk`` measured on calendar months seen on both sides: the mean,
+    over those months, of the month's mean after the break minus its mean before. Only
+    year-months with at least ``STEP_MONTH_DAYS`` days count, which keeps a month split by
+    the break itself out of the comparison."""
+    idx = pd.DatetimeIndex(r.index)
+    df = pd.DataFrame(
+        {
+            "v": r.to_numpy(dtype=float),
+            "ym": idx.year * 100 + idx.month,
+            "month": idx.month,
+            "after": idx >= brk,
+        }
+    )
+    g = df.groupby(["ym", "month", "after"])["v"].agg(["mean", "size"]).reset_index()
+    before: dict[int, list[float]] = {}
+    after: dict[int, list[float]] = {}
+    kept = g[g["size"] >= STEP_MONTH_DAYS]
+    for month, is_after, v in zip(
+        kept["month"].to_numpy(), kept["after"].to_numpy(), kept["mean"].to_numpy(), strict=True
+    ):
+        (after if bool(is_after) else before).setdefault(int(month), []).append(float(v))
+    months = sorted(set(before) & set(after))
+    if not months:
+        return 0.0, []
+    return float(np.mean([np.mean(after[m]) - np.mean(before[m]) for m in months])), months
 
 
 def _ridge(y: np.ndarray, x: np.ndarray, alpha: float) -> tuple[float, np.ndarray]:
@@ -185,6 +285,27 @@ def fit_forecast(
         pred = (a + (x_all / scale_x) @ w) * scale_y
         params["intercept_pct"] = 100 * a
         params["anchor_days"] = n_late
+        params["weights"] = {
+            str(c): float(v) for c, v in zip(donors.columns, w, strict=True) if v > 0.005
+        }
+    elif model in ("seasonal", "seasonal_step"):
+        w = fit_weights(ys, xs)
+        train_days = pd.DatetimeIndex(idx[train])
+        resid = pd.Series(ys - xs @ w, index=train_days)
+        share: pd.Series | None = None
+        if model == "seasonal_step":
+            total = x_tr.sum(axis=1)
+            ok = (y_tr > 0) & (total > 0)
+            # the break is tested on the log share in the donor total (100 x log, so the
+            # test's shift reads in points), on the days where that share exists
+            share = pd.Series(100 * np.log(y_tr[ok] / total[ok]), index=train_days[ok])
+        a, profile, step, n_late = _seasonal(resid, share)
+        d = np.array([profile.get(int(m), 0.0) for m in pd.DatetimeIndex(idx).month])
+        pred = (a + d + (x_all / scale_x) @ w) * scale_y
+        params["intercept_pct"] = 100 * a
+        params["anchor_days"] = n_late
+        params["profile_pct"] = {str(m): 100 * v for m, v in sorted(profile.items())}
+        params["step"] = step
         params["weights"] = {
             str(c): float(v) for c, v in zip(donors.columns, w, strict=True) if v > 0.005
         }
@@ -344,6 +465,7 @@ def rolling_origin(
     min_days: int,
     tolerance_pct: float,
     models: tuple[str, ...] = MODELS,
+    after: dt.date | None = None,
 ) -> dict[str, Any]:
     """Rolling-origin validation of every model.
 
@@ -353,7 +475,8 @@ def rolling_origin(
     scored window carries the share of donors whose own gap is at least as large as the
     treated unit's. A model passes if the mean gap across origins is within
     ``tolerance_pct`` at every horizon; among the passers the lowest mean RMSPE is
-    ``selected``."""
+    ``selected``. With ``after``, ``summary_after`` and ``selected_after`` repeat the
+    summary over the origins on or after that date, beside the rule."""
     labels = [_horizon_label(h) for h in horizons]
     block: dict[str, Any] = {
         "train_start": train_start.isoformat(),
@@ -417,40 +540,62 @@ def rolling_origin(
                 }
             block["fits"][model][o.isoformat()] = entry
 
-        summary: dict[str, Any] = {"horizons": {}}
-        all_rmspe: list[float] = []
-        for lab in labels:
-            rows = [
-                e["horizons"][lab]
-                for e in block["fits"][model].values()
-                if "horizons" in e and lab in e["horizons"]
-            ]
-            if not rows:
-                summary["horizons"][lab] = {"n_origins": 0}
-                continue
-            gaps = np.array([r["mean_gap_pct"] for r in rows])
-            rmspes = [r["rmspe_pct"] for r in rows]
-            all_rmspe += rmspes
-            summary["horizons"][lab] = {
-                "n_origins": len(rows),
-                "bias_pct": float(gaps.mean()),
-                "max_abs_gap_pct": float(np.abs(gaps).max()),
-                "rmspe_pct": float(np.mean(rmspes)),
-                "rank_p": float(np.mean([r["placebo_rank_p"] for r in rows])),
-                "within": bool(abs(gaps.mean()) <= tolerance_pct),
-            }
-        scored = [h for h in summary["horizons"].values() if h["n_origins"]]
-        summary["rmspe_pct"] = float(np.mean(all_rmspe)) if all_rmspe else float("nan")
-        summary["passes"] = bool(scored) and all(h["within"] for h in scored)
-        block["summary"][model] = summary
-
-    passing = sorted(
-        (m for m, s in block["summary"].items() if s["passes"]),
-        key=lambda m: block["summary"][m]["rmspe_pct"],
-    )
-    block["ranking"] = passing
-    block["selected"] = passing[0] if passing else None
+    block["summary"] = {
+        m: _rolling_summary(block["fits"][m], labels, tolerance_pct) for m in models
+    }
+    block["ranking"] = _passing(block["summary"])
+    block["selected"] = block["ranking"][0] if block["ranking"] else None
+    if after is not None:
+        keep = {o.isoformat() for o in origins if o >= after}
+        block["after_origin"] = after.isoformat()
+        block["summary_after"] = {
+            m: _rolling_summary(block["fits"][m], labels, tolerance_pct, keep) for m in models
+        }
+        ranking = _passing(block["summary_after"])
+        block["selected_after"] = ranking[0] if ranking else None
     return block
+
+
+def _rolling_summary(
+    fits: dict[str, Any],
+    labels: list[str],
+    tolerance_pct: float,
+    origins: set[str] | None = None,
+) -> dict[str, Any]:
+    """Mean gap, largest gap, RMSPE and placebo share per horizon across the scored
+    origins (all of them, or those in ``origins``), and whether the model passes."""
+    summary: dict[str, Any] = {"horizons": {}}
+    all_rmspe: list[float] = []
+    for lab in labels:
+        rows = [
+            e["horizons"][lab]
+            for o, e in fits.items()
+            if (origins is None or o in origins) and "horizons" in e and lab in e["horizons"]
+        ]
+        if not rows:
+            summary["horizons"][lab] = {"n_origins": 0}
+            continue
+        gaps = np.array([r["mean_gap_pct"] for r in rows])
+        rmspes = [r["rmspe_pct"] for r in rows]
+        all_rmspe += rmspes
+        summary["horizons"][lab] = {
+            "n_origins": len(rows),
+            "bias_pct": float(gaps.mean()),
+            "max_abs_gap_pct": float(np.abs(gaps).max()),
+            "rmspe_pct": float(np.mean(rmspes)),
+            "rank_p": float(np.mean([r["placebo_rank_p"] for r in rows])),
+            "within": bool(abs(gaps.mean()) <= tolerance_pct),
+        }
+    scored = [h for h in summary["horizons"].values() if h["n_origins"]]
+    summary["rmspe_pct"] = float(np.mean(all_rmspe)) if all_rmspe else float("nan")
+    summary["passes"] = bool(scored) and all(h["within"] for h in scored)
+    return summary
+
+
+def _passing(summary: dict[str, Any]) -> list[str]:
+    return sorted(
+        (m for m, s in summary.items() if s["passes"]), key=lambda m: summary[m]["rmspe_pct"]
+    )
 
 
 # --- change-point test ----------------------------------------------------------------

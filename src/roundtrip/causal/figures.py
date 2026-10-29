@@ -73,6 +73,8 @@ OOS_COLORS = {
     "ridge": "#6a994e",
     "anchored": "#1b7f79",
     "growth": "#e0a100",
+    "seasonal": "#7b4ea3",
+    "seasonal_step": "#3f5fbf",
 }
 
 
