@@ -1,9 +1,9 @@
 # Congestion pricing and ride-hail in the Manhattan CBD
 
-_Candidate report, run `20261028T032834Z` (2026-10-28T03:28:47+00:00), git `32ec5357`,
-data 2023-01-01 to 2026-08-31 (44 months)._
+_Candidate report, run `20261102T191958Z` (2026-11-02T19:20:56+00:00), git `f963ce98`,
+data 2023-01-01 to 2026-09-30 (45 months)._
 
-**Headline.** Relative to the synthetic control, CBD pickups from 2025-01-05 to 2026-01-03 show: trips -5.6% [-15.9, +4.6]; mean wait (s) -1.5% [-4.2, +1.2]; mean base fare ($) +2.0% [-0.5, +4.5] (percent of counterfactual, 95% placebo intervals).
+**Headline.** Relative to the synthetic control, CBD pickups from 2025-01-05 to 2026-01-03 show: trips -4.2% [-13.3, +4.9]; mean wait (s) -1.5% [-4.2, +1.2]; mean base fare ($) +2.0% [-0.5, +4.5] (percent of counterfactual, 95% placebo intervals).
 
 ![Post-period effects under the three comparisons](figures/comparisons.png)
 
@@ -18,7 +18,7 @@ anticipation period rather than as clean "before" weeks.
 ## Data
 
 TLC High Volume For-Hire Vehicle trip records, every trip, 2023-01-01 to
-2026-08-31. The pipeline streams each monthly file, validates it (schema, row
+2026-09-30. The pipeline streams each monthly file, validates it (schema, row
 counts, null rates, timestamps, money, zones, licence codes) and reduces it to a pickup
 zone by hour by company panel; the analyses here start from that panel. Outcomes are
 daily or weekly ratios of sums, so every number is consistent with every other.
@@ -41,8 +41,9 @@ Three comparisons, all reported (owner design, see METHODS.md):
 2. **Synthetic control.** A weighted combination of control zones that tracks the CBD
    from 2023-01-01 to 2024-11-13
    (the day before the announcement). Weights are non-negative and sum to one on
-   mean-scaled daily series. Inference is placebo-in-space: every donor is refitted as if
-   treated. The design is first tested on the same calendar window a year earlier
+   mean-scaled daily series. For trips the counterfactual is the *seasonally anchored, step-adjusted* design (owner decision 13, 29 October 2026): the simplex weights plus a calendar-month profile of the fit residual over the last twelve months of the fit window and a level over its last 90 days net of that profile, after netting out a level shift of -2.9 points in the CBD dated to the week of 2023-12-18. Waits and fares use the simplex weights alone. Inference is
+   placebo-in-space: every donor is refitted as if treated, the same way. The design is
+   first tested on the same calendar window a year earlier
    (2023-11-14 to 2024-01-05), when nothing happened.
 3. **Pre-window.** CBD means over the window versus the clean pre-period from
    2024-06-01 to the day before the announcement, with the donor pool's change
@@ -65,7 +66,7 @@ Effects on the CBD as a percent of the counterfactual, donor-adjusted, 95% inter
 
 | Outcome | prior year | synthetic control | pre-window |
 |---|---|---|---|
-| trips | -4.6% [-5.2, -3.9] | -5.6% [-15.9, +4.6] | -4.8% [-6.7, -2.8] |
+| trips | -4.6% [-5.2, -3.9] | -4.2% [-13.3, +4.9] | -4.8% [-6.7, -2.8] |
 | mean wait (s) | -5.0% [-6.0, -4.1] | -1.5% [-4.2, +1.2] | -5.4% [-7.2, -3.6] |
 | mean base fare ($) | +6.1% [+5.6, +6.6] | +2.0% [-0.5, +4.5] | +6.4% [+4.5, +8.5] |
 | mean driver pay ($) | +2.7% [+2.4, +3.1] | n/a | +3.2% [+1.5, +4.9] |
@@ -76,7 +77,7 @@ Effects on the CBD as a percent of the counterfactual, donor-adjusted, 95% inter
 
 | Outcome | prior year | synthetic control | pre-window |
 |---|---|---|---|
-| trips | -4.1% [-8.6, +0.2] | -4.5% [-12.2, +3.1] | -4.0% [-10.0, +1.7] |
+| trips | -4.1% [-8.6, +0.2] | -1.9% [-6.5, +2.7] | -4.0% [-10.0, +1.7] |
 | mean wait (s) | -0.9% [-5.2, +2.9] | +1.1% [-3.0, +5.2] | +0.9% [-2.6, +4.8] |
 | mean base fare ($) | +5.1% [+2.1, +7.5] | +3.1% [-0.4, +6.6] | +7.3% [+3.0, +12.4] |
 | mean driver pay ($) | +2.8% [+0.3, +4.4] | n/a | +6.3% [+3.0, +10.3] |
@@ -87,7 +88,7 @@ Effects on the CBD as a percent of the counterfactual, donor-adjusted, 95% inter
 
 | Outcome | Pre-RMSPE | Anticipation gap | Post gap | Placebo p (post) | 2023 test gap | Top donors |
 |---|---|---|---|---|---|---|
-| trips | 8.17e+03 | -4.5% | -5.6% | 0.10 | -3.1% | Williamsburg (South Side) 0.18, Lenox Hill West 0.18, Upper East Side South 0.18, Lincoln Square East 0.15 |
+| trips | 7.15e+03 | -1.9% | -4.2% | 0.12 | -2.8% | Williamsburg (South Side) 0.18, Lenox Hill West 0.18, Upper East Side South 0.18, Lincoln Square East 0.15 |
 | mean wait (s) | 13.1 | +1.1% | -1.5% | 0.90 | +2.9% | Upper East Side South 0.48, Lincoln Square West 0.24, Williamsburg (North Side) 0.11, DUMBO/Vinegar Hill 0.09 |
 | mean base fare ($) | 1.24 | +3.1% | +2.0% | 0.08 | +2.6% | Upper East Side South 0.73, Lenox Hill East 0.11, Downtown Brooklyn/MetroTech 0.11, Lincoln Square East 0.02 |
 
@@ -101,18 +102,18 @@ Effects on the CBD as a percent of the counterfactual, donor-adjusted, 95% inter
 
 | Outcome | Control group | Anticipation | Post | Pre-trend p |
 |---|---|---|---|---|
-| trips | manhattan north | -0.079 [-0.096, -0.062] log pts | -0.062 [-0.090, -0.034] log pts | 0.00 |
-| mean wait (s) | manhattan north | -3.004 [-9.234, +3.227] | -22.701 [-29.666, -15.735] | 0.00 |
-| mean base fare ($) | manhattan north | +2.686 [+1.959, +3.413] | +2.825 [+2.082, +3.567] | 0.00 |
-| mean driver pay ($) | manhattan north | +1.175 [+0.835, +1.515] | +0.833 [+0.530, +1.135] | 0.00 |
+| trips | manhattan north | -0.079 [-0.096, -0.062] log pts | -0.062 [-0.090, -0.033] log pts | 0.00 |
+| mean wait (s) | manhattan north | -3.004 [-9.234, +3.227] | -22.947 [-30.036, -15.858] | 0.00 |
+| mean base fare ($) | manhattan north | +2.686 [+1.959, +3.413] | +2.919 [+2.160, +3.677] | 0.00 |
+| mean driver pay ($) | manhattan north | +1.175 [+0.835, +1.515] | +0.891 [+0.577, +1.205] | 0.00 |
 | tip rate | manhattan north | +0.001 [+0.000, +0.001] | -0.000 [-0.001, +0.000] | 0.00 |
 | shared-request share | manhattan north | -0.006 [-0.008, -0.003] | +0.001 [-0.001, +0.004] | 0.00 |
-| trips | inner bk queens | -0.094 [-0.120, -0.069] log pts | -0.159 [-0.184, -0.133] log pts | 0.00 |
-| mean wait (s) | inner bk queens | +3.832 [-3.573, +11.237] | -20.571 [-24.230, -16.913] | 0.00 |
-| mean base fare ($) | inner bk queens | +3.853 [+3.292, +4.414] | +3.478 [+2.955, +4.002] | 0.00 |
-| mean driver pay ($) | inner bk queens | +1.929 [+1.637, +2.221] | +1.290 [+1.071, +1.508] | 0.00 |
+| trips | inner bk queens | -0.094 [-0.120, -0.069] log pts | -0.159 [-0.185, -0.134] log pts | 0.00 |
+| mean wait (s) | inner bk queens | +3.832 [-3.573, +11.237] | -20.352 [-24.018, -16.687] | 0.00 |
+| mean base fare ($) | inner bk queens | +3.853 [+3.292, +4.414] | +3.515 [+2.981, +4.048] | 0.00 |
+| mean driver pay ($) | inner bk queens | +1.929 [+1.637, +2.221] | +1.332 [+1.110, +1.554] | 0.00 |
 | tip rate | inner bk queens | +0.001 [+0.000, +0.002] | +0.000 [-0.000, +0.001] | 0.00 |
-| shared-request share | inner bk queens | -0.009 [-0.010, -0.007] | -0.003 [-0.004, -0.001] | 0.00 |
+| shared-request share | inner bk queens | -0.009 [-0.010, -0.007] | -0.002 [-0.004, -0.001] | 0.00 |
 
 ![Event study, Manhattan north control](figures/event_study_manhattan_north.png)
 
@@ -122,7 +123,7 @@ Effects on the CBD as a percent of the counterfactual, donor-adjusted, 95% inter
 
 ### The 2023 test of the synthetic control
 
-- **trips**: in the 2023 test window the synthetic CBD missed the actual CBD by -3.1% on average (RMSPE ratio 1.45). Any post-period gap smaller than that in absolute value should not be read as an effect. Placebo-in-space p-value for the post window: 0.10.
+- **trips**: in the 2023 test window the synthetic CBD missed the actual CBD by -2.8% on average (RMSPE ratio 1.56). Any post-period gap smaller than that in absolute value should not be read as an effect. Placebo-in-space p-value for the post window: 0.12.
 - **mean wait (s)**: in the 2023 test window the synthetic CBD missed the actual CBD by +2.9% on average (RMSPE ratio 1.29). Any post-period gap smaller than that in absolute value should not be read as an effect. Placebo-in-space p-value for the post window: 0.90.
 - **mean base fare ($)**: in the 2023 test window the synthetic CBD missed the actual CBD by +2.6% on average (RMSPE ratio 1.81). Any post-period gap smaller than that in absolute value should not be read as an effect. Placebo-in-space p-value for the post window: 0.08.
 
@@ -134,22 +135,100 @@ Each model is trained on 2023-01-01 to 2023-11-13 only and then forecasts forwar
 
 | Outcome | Model | Train RMSPE | Hold-out gap | Last quarter of hold-out | Anticipation gap | Post gap | Donor share | Within tolerance |
 |---|---|---|---|---|---|---|---|---|
-| trips | simplex weights (current design) | 4.4% | -4.0% | -4.7% | -6.8% | -8.5% | 0.12 | no |
-| trips | ridge regression | 4.0% | -3.5% | -4.8% | -5.8% | -8.0% | 0.17 | no |
-| mean wait (s) | simplex weights (current design) | 4.6% | +1.4% | +1.9% | +2.6% | -0.5% | 0.27 | yes |
-| mean wait (s) | ridge regression | 3.3% | +2.6% | +3.1% | +2.9% | +0.9% | 0.12 | no |
-| mean base fare ($) | simplex weights (current design) | 3.5% | +0.1% | -0.2% | +3.4% | +2.7% | 0.88 | yes |
-| mean base fare ($) | ridge regression | 2.3% | +0.6% | -0.3% | +3.3% | +3.2% | 0.52 | yes |
+| trips | simplex weights | 4.4% | -4.0% | -4.7% | -6.8% | -8.5% | 0.12 | no (reported only) |
+| trips | ridge regression | 4.0% | -3.5% | -4.8% | -5.8% | -8.0% | 0.17 | no (reported only) |
+| trips | anchored (last 90 days) | 4.4% | -4.0% | -4.7% | -6.8% | -8.5% | 0.10 | no (reported only) |
+| trips | growth-rate (weekly log changes) | 4.7% | -3.4% | -4.3% | -6.2% | -7.4% | 0.17 | no (reported only) |
+| trips | seasonally anchored (last 12 months) | 4.0% | -3.8% | -4.7% | -6.5% | -8.3% | 0.10 | no (reported only) |
+| trips | seasonally anchored, step-adjusted | 4.0% | -3.8% | -4.7% | -6.5% | -8.3% | 0.10 | no |
+| mean wait (s) | simplex weights | 4.6% | +1.4% | +1.9% | +2.6% | -0.5% | 0.27 | yes |
+| mean wait (s) | ridge regression | 3.3% | +2.6% | +3.1% | +2.9% | +0.9% | 0.12 | no (reported only) |
+| mean wait (s) | anchored (last 90 days) | 4.6% | +2.1% | +2.6% | +3.3% | +0.2% | 0.15 | yes (reported only) |
+| mean wait (s) | growth-rate (weekly log changes) | 4.9% | +1.4% | +1.5% | +1.9% | -0.8% | 0.31 | yes (reported only) |
+| mean wait (s) | seasonally anchored (last 12 months) | 4.5% | +1.6% | +2.6% | +3.1% | -0.3% | 0.23 | yes (reported only) |
+| mean wait (s) | seasonally anchored, step-adjusted | 4.5% | +1.6% | +2.6% | +3.1% | -0.3% | 0.23 | yes (reported only) |
+| mean base fare ($) | simplex weights | 3.5% | +0.1% | -0.2% | +3.4% | +2.7% | 0.88 | yes |
+| mean base fare ($) | ridge regression | 2.3% | +0.6% | -0.3% | +3.3% | +3.2% | 0.52 | yes (reported only) |
+| mean base fare ($) | anchored (last 90 days) | 3.6% | +0.6% | +0.3% | +3.9% | +3.2% | 0.38 | yes (reported only) |
+| mean base fare ($) | growth-rate (weekly log changes) | 3.8% | +0.9% | +1.2% | +4.9% | +4.8% | 0.29 | yes (reported only) |
+| mean base fare ($) | seasonally anchored (last 12 months) | 3.5% | +0.2% | +0.3% | +3.7% | +2.8% | 0.73 | yes (reported only) |
+| mean base fare ($) | seasonally anchored, step-adjusted | 3.5% | +0.2% | +0.3% | +3.7% | +2.8% | 0.73 | yes (reported only) |
 
-- **trips**: no model stays within tolerance over the untreated year. Its anticipation and post gaps cannot be separated from drift with these donors. How much of the post gap of -8.5% is policy depends entirely on what the drift would have done, and the data cannot say. If it stayed at its last-quarter level (-4.7%), about -3.8% remains. If it kept its hold-out trend (-0.10% a month, -5.5% by the middle of the post year), about -3.1% remains. Both are assumptions, not estimates.
-- **mean wait (s)**: within tolerance out of sample: simplex weights (current design).
-- **mean base fare ($)**: within tolerance out of sample: simplex weights (current design), ridge regression.
+- **trips**: the adopted design (seasonally anchored, step-adjusted) runs -3.8% from the actual series over the untreated year, outside tolerance. Trained to 2023-11-13 it cannot see the level shift of the week of 2023-12-18 that it nets out on the full fit window, and no model trained before a break can forecast through it. The rolling-origin rule below is the test the design is selected on, which it passes.
+- **mean wait (s)**: the adopted design (simplex weights) stays within tolerance over the untreated year (+1.4%).
+- **mean base fare ($)**: the adopted design (simplex weights) stays within tolerance over the untreated year (+0.1%).
 
 ![Out-of-sample forecasts: trips](figures/synth_oos_n_trips.png)
 
 ![Out-of-sample forecasts: mean wait (s)](figures/synth_oos_mean_wait_seconds.png)
 
 ![Out-of-sample forecasts: mean base fare ($)](figures/synth_oos_mean_base_fare.png)
+
+### Rolling-origin validation of the trips design
+
+Each model is trained from 2023-01-01 through each of 6 origins (2023-06-30 to 2024-09-30, the end of each quarter) and scored on the untreated days 1 to 3, 4 to 6 and 7 to 12 months ahead, cut at 2024-11-13. The cells are the mean gap across origins (actual minus forecast, % of forecast) with the number of origins scored; a model passes if that mean is within 2 points at every horizon, and RMSPE breaks ties. Placebo share is the share of donor zones whose own gap at the same origin and horizon is at least as large as the CBD's, averaged over origins. This is the selection rule for the trips design (owner decisions 2 and 12, 28 and 29 October 2026); waits and fares are shown for comparison and keep their design.
+
+An origin counts toward the rule only if the level break of the week of 2023-12-18 is identifiable in its training window, that is some calendar month is seen on both sides of the break in different years: an origin that trains before the break is asked to forecast a shift it cannot see. Origins counted: 2024-03-31, 2024-06-30, 2024-09-30. The table over every origin follows, for the record.
+
+| Outcome | Model | 1 to 3 months | 4 to 6 months | 7 to 12 months | RMSPE | Placebo share | Passes |
+|---|---|---|---|---|---|---|---|
+| trips | simplex weights | -2.4% (3) ! | -2.2% (2) ! | -4.7% (1) ! | 5.0% | 0.35 | no |
+| trips | ridge regression | -2.3% (3) ! | -3.0% (2) ! | -5.0% (1) ! | 4.8% | 0.28 | no |
+| trips | anchored (last 90 days) | -0.8% (3) | +0.4% (2) | -3.2% (1) ! | 4.9% | 0.47 | no |
+| trips | growth-rate (weekly log changes) | -2.0% (3) | -1.0% (2) | -5.0% (1) ! | 5.5% | 0.41 | no |
+| trips | seasonally anchored (last 12 months) | -3.1% (3) ! | -3.4% (2) ! | -3.9% (1) ! | 5.1% | 0.23 | no |
+| trips | seasonally anchored, step-adjusted | +0.2% (3) | -0.1% (2) | -0.3% (1) | 4.1% | 0.97 | yes |
+| mean wait (s) | simplex weights | -0.2% (3) | +0.1% (2) | +0.7% (1) | 4.8% | 0.58 | yes |
+| mean wait (s) | ridge regression | +0.2% (3) | +0.6% (2) | +0.7% (1) | 4.7% | 0.62 | yes |
+| mean wait (s) | anchored (last 90 days) | +0.1% (3) | +0.4% (2) | +0.5% (1) | 4.9% | 0.56 | yes |
+| mean wait (s) | growth-rate (weekly log changes) | +0.3% (3) | +0.5% (2) | +0.6% (1) | 5.0% | 0.55 | yes |
+| mean wait (s) | seasonally anchored (last 12 months) | +0.5% (3) | +0.8% (2) | +1.9% (1) | 5.2% | 0.49 | yes |
+| mean wait (s) | seasonally anchored, step-adjusted | +0.5% (3) | +0.8% (2) | +1.9% (1) | 5.2% | 0.51 | yes |
+| mean base fare ($) | simplex weights | -0.3% (3) | -0.6% (2) | +0.1% (1) | 4.2% | 0.68 | yes |
+| mean base fare ($) | ridge regression | -0.7% (3) | -1.4% (2) | -1.0% (1) | 3.1% | 0.35 | yes |
+| mean base fare ($) | anchored (last 90 days) | +0.2% (3) | -0.4% (2) | +0.6% (1) | 4.3% | 0.52 | yes |
+| mean base fare ($) | growth-rate (weekly log changes) | +0.9% (3) | +0.6% (2) | +2.3% (1) ! | 4.9% | 0.25 | no |
+| mean base fare ($) | seasonally anchored (last 12 months) | -0.1% (3) | -0.3% (2) | +0.0% (1) | 4.2% | 0.88 | yes |
+| mean base fare ($) | seasonally anchored, step-adjusted | +0.3% (3) | +0.0% (2) | +0.0% (1) | 4.1% | 0.88 | yes |
+
+- **trips**: within 2 points at every horizon: seasonally anchored, step-adjusted (in order of RMSPE). Selected: seasonally anchored, step-adjusted.
+- **mean wait (s)**: within 2 points at every horizon: ridge regression, simplex weights, anchored (last 90 days), growth-rate (weekly log changes), seasonally anchored (last 12 months), seasonally anchored, step-adjusted (in order of RMSPE). Selected: ridge regression.
+- **mean base fare ($)**: within 2 points at every horizon: ridge regression, seasonally anchored, step-adjusted, seasonally anchored (last 12 months), simplex weights, anchored (last 90 days) (in order of RMSPE). Selected: ridge regression.
+
+Scoring windows containing Christmas: 2 (the protocol asks for at least two, so the holiday artefact counts against a design).
+
+Over every origin (2023-06-30 to 2024-09-30):
+
+| Outcome | Model | 1 to 3 months | 4 to 6 months | 7 to 12 months | RMSPE | Placebo share | Passes |
+|---|---|---|---|---|---|---|---|
+| trips | simplex weights | -1.3% (6) | -2.7% (5) ! | -4.0% (4) ! | 5.3% | 0.34 | no |
+| trips | ridge regression | -1.1% (6) | -2.6% (5) ! | -3.6% (4) ! | 5.7% | 0.34 | no |
+| trips | anchored (last 90 days) | -0.4% (6) | -1.6% (5) | -3.4% (4) ! | 5.4% | 0.39 | no |
+| trips | growth-rate (weekly log changes) | -1.0% (6) | -2.0% (5) | -3.6% (4) ! | 5.6% | 0.42 | no |
+| trips | seasonally anchored (last 12 months) | -1.9% (6) | -3.1% (5) ! | -3.9% (4) ! | 5.4% | 0.28 | no |
+| trips | seasonally anchored, step-adjusted | -0.3% (6) | -1.7% (5) | -3.1% (4) ! | 5.0% | 0.55 | no |
+| mean wait (s) | simplex weights | -0.0% (6) | +0.1% (5) | +0.3% (4) | 5.0% | 0.69 | yes |
+| mean wait (s) | ridge regression | +0.2% (6) | +0.3% (5) | +0.8% (4) | 4.9% | 0.65 | yes |
+| mean wait (s) | anchored (last 90 days) | +0.1% (6) | +0.1% (5) | +0.2% (4) | 5.1% | 0.70 | yes |
+| mean wait (s) | growth-rate (weekly log changes) | +0.2% (6) | +0.3% (5) | -0.1% (4) | 5.1% | 0.63 | yes |
+| mean wait (s) | seasonally anchored (last 12 months) | +0.2% (6) | +0.4% (5) | +0.8% (4) | 5.1% | 0.69 | yes |
+| mean wait (s) | seasonally anchored, step-adjusted | +0.2% (6) | +0.4% (5) | +0.8% (4) | 5.1% | 0.69 | yes |
+| mean base fare ($) | simplex weights | -0.3% (6) | -0.3% (5) | -0.6% (4) | 4.3% | 0.57 | yes |
+| mean base fare ($) | ridge regression | -0.2% (6) | -0.4% (5) | -0.7% (4) | 3.2% | 0.55 | yes |
+| mean base fare ($) | anchored (last 90 days) | -0.0% (6) | -0.1% (5) | -0.4% (4) | 4.3% | 0.49 | yes |
+| mean base fare ($) | growth-rate (weekly log changes) | +0.5% (6) | +0.7% (5) | +0.7% (4) | 4.8% | 0.31 | yes |
+| mean base fare ($) | seasonally anchored (last 12 months) | -0.4% (6) | -0.2% (5) | -0.4% (4) | 4.2% | 0.66 | yes |
+| mean base fare ($) | seasonally anchored, step-adjusted | -0.2% (6) | -0.1% (5) | -0.4% (4) | 4.2% | 0.66 | yes |
+
+- **trips** over every origin: no model is within 2 points at every horizon; the closest is seasonally anchored, step-adjusted (largest mean gap 3.1 points).
+- **mean wait (s)** over every origin: within 2 points at every horizon: ridge regression, simplex weights, anchored (last 90 days), growth-rate (weekly log changes), seasonally anchored (last 12 months), seasonally anchored, step-adjusted (in order of RMSPE). Selected: ridge regression.
+- **mean base fare ($)** over every origin: within 2 points at every horizon: ridge regression, seasonally anchored, step-adjusted, seasonally anchored (last 12 months), simplex weights, anchored (last 90 days), growth-rate (weekly log changes) (in order of RMSPE). Selected: ridge regression.
+
+![Rolling-origin validation: trips](figures/synth_rolling_n_trips.png)
+
+![Rolling-origin validation: mean wait (s)](figures/synth_rolling_mean_wait_seconds.png)
+
+![Rolling-origin validation: mean base fare ($)](figures/synth_rolling_mean_base_fare.png)
 
 ### Prior-year design on an untreated year
 
@@ -196,12 +275,12 @@ higher share means the clustered standard errors understate the noise for that o
 | fake date | tip rate | manhattan north | 3 | -0.000 | 0.000 | 0% |
 | fake date | shared-request share | inner bk queens | 3 | -0.002 | 0.003 | 67% |
 | fake date | shared-request share | manhattan north | 3 | -0.002 | 0.003 | 100% |
-| fake zones | trips | inner bk queens | 20 | -0.003 | 0.048 | 5% |
-| fake zones | trips | manhattan north | 20 | -0.006 | 0.046 | 5% |
-| fake zones | mean wait (s) | inner bk queens | 20 | -0.632 | 5.314 | 0% |
-| fake zones | mean wait (s) | manhattan north | 20 | -0.013 | 15.490 | 5% |
-| fake zones | mean base fare ($) | inner bk queens | 20 | +0.118 | 0.499 | 0% |
-| fake zones | mean base fare ($) | manhattan north | 20 | -0.032 | 1.014 | 0% |
+| fake zones | trips | inner bk queens | 20 | -0.003 | 0.050 | 5% |
+| fake zones | trips | manhattan north | 20 | -0.006 | 0.047 | 5% |
+| fake zones | mean wait (s) | inner bk queens | 20 | -0.615 | 5.234 | 0% |
+| fake zones | mean wait (s) | manhattan north | 20 | +0.036 | 15.600 | 5% |
+| fake zones | mean base fare ($) | inner bk queens | 20 | +0.120 | 0.505 | 0% |
+| fake zones | mean base fare ($) | manhattan north | 20 | -0.036 | 1.032 | 0% |
 
 ## Limitations
 
@@ -278,17 +357,38 @@ higher share means the clustered standard errors understate the noise for that o
 | 2026-06 | warn | 20,775,868 | null_rate_band:on_scene_datetime |
 | 2026-07 | warn | 20,921,249 | null_rate_band:on_scene_datetime |
 | 2026-08 | warn | 20,493,480 | null_rate_band:on_scene_datetime |
+| 2026-09 | warn | 20,987,681 | null_rate_band:on_scene_datetime |
 
 ### What changed since the last approved release
 
-_No approved release yet; this is the first candidate._
+Last approved run `20261028T032834Z` covered data to 2026-08-31; this run covers data to 2026-09-30.
+
+| Outcome | Design | Last approved | This run | Change (pp) |
+|---|---|---|---|---|
+| trips | prior year | -4.6% [-5.2, -3.9] | -4.6% [-5.2, -3.9] | +0.0 |
+| trips | pre-window | -4.8% [-6.7, -2.8] | -4.8% [-6.7, -2.8] | +0.0 |
+| trips | synthetic control | -5.6% [-15.9, +4.6] | -4.2% [-13.3, +4.9] | +1.5 |
+| mean wait (s) | prior year | -5.0% [-6.0, -4.1] | -5.0% [-6.0, -4.1] | +0.0 |
+| mean wait (s) | pre-window | -5.4% [-7.2, -3.6] | -5.4% [-7.2, -3.6] | +0.0 |
+| mean wait (s) | synthetic control | -1.5% [-4.2, +1.2] | -1.5% [-4.2, +1.2] | +0.0 |
+| mean base fare ($) | prior year | +6.1% [+5.6, +6.6] | +6.1% [+5.6, +6.6] | +0.0 |
+| mean base fare ($) | pre-window | +6.4% [+4.5, +8.5] | +6.4% [+4.5, +8.5] | +0.0 |
+| mean base fare ($) | synthetic control | +2.0% [-0.5, +4.5] | +2.0% [-0.5, +4.5] | +0.0 |
+| mean driver pay ($) | prior year | +2.7% [+2.4, +3.1] | +2.7% [+2.4, +3.1] | +0.0 |
+| mean driver pay ($) | pre-window | +3.2% [+1.5, +4.9] | +3.2% [+1.5, +4.9] | +0.0 |
+| tip rate | prior year | -0.1% [-0.5, +0.2] | -0.1% [-0.5, +0.2] | +0.0 |
+| tip rate | pre-window | -0.2% [-1.0, +0.7] | -0.2% [-1.0, +0.7] | +0.0 |
+| shared-request share | prior year | -15.4% [-20.3, -10.3] | -15.4% [-20.3, -10.3] | +0.0 |
+| shared-request share | pre-window | -15.4% [-18.5, -11.9] | -15.4% [-18.5, -11.9] | +0.0 |
+
+New months since the last approved release: 2026-09.
 
 ### Run record
 
 | Field | Value |
 |---|---|
-| Run id | `20261028T032834Z` |
-| Git SHA | `32ec535717b79e643d08bb95f5973ae721610814` |
-| Manifest hash | `d37e7e914398720f4c452eb5c71a44658116880ba69b517a50cc9a9818772976` |
+| Run id | `20261102T191958Z` |
+| Git SHA | `f963ce98a7aee69199397ed2ebd921eb59e3a8b7` |
+| Manifest hash | `cd93b075aadd513e866bd2f9025a405a6af12f8b0e2bafbabbba015ff3950c22` |
 | Package version | 0.1.0 |
-| Analysis wall time | 13.6 s |
+| Analysis wall time | 58.7 s |
