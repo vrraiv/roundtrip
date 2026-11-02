@@ -1,0 +1,202 @@
+{
+  "month": "2023-02",
+  "generated_at": "2026-10-28T01:46:18.980641Z",
+  "schema_version": "hvfhv-2019",
+  "row_count": 17960971,
+  "null_rates": {
+    "hvfhs_license_num": 0.0,
+    "dispatching_base_num": 0.0,
+    "originating_base_num": 0.2602053641754669,
+    "request_datetime": 0.0,
+    "on_scene_datetime": 0.2602053641754669,
+    "pickup_datetime": 0.0,
+    "dropoff_datetime": 0.0,
+    "PULocationID": 0.0,
+    "DOLocationID": 0.0,
+    "trip_miles": 0.0,
+    "trip_time": 0.0,
+    "base_passenger_fare": 0.0,
+    "tolls": 0.0,
+    "bcf": 0.0,
+    "sales_tax": 0.0,
+    "congestion_surcharge": 0.0,
+    "airport_fee": 0.0,
+    "tips": 0.0,
+    "driver_pay": 0.0,
+    "shared_request_flag": 0.0,
+    "shared_match_flag": 0.0,
+    "access_a_ride_flag": 0.0,
+    "wav_request_flag": 0.0,
+    "wav_match_flag": 0.0
+  },
+  "checks": [
+    {
+      "name": "schema_required_columns",
+      "severity": "hard",
+      "passed": true,
+      "metric": null,
+      "threshold": null,
+      "detail": "ok"
+    },
+    {
+      "name": "schema_no_unexpected_columns",
+      "severity": "soft",
+      "passed": true,
+      "metric": null,
+      "threshold": null,
+      "detail": "ok"
+    },
+    {
+      "name": "row_count_vs_history",
+      "severity": "soft",
+      "passed": true,
+      "metric": 17960971.0,
+      "threshold": null,
+      "detail": "17,960,971 rows; only 1 prior months, band not enforced"
+    },
+    {
+      "name": "null_rates_vs_history",
+      "severity": "soft",
+      "passed": true,
+      "metric": null,
+      "threshold": null,
+      "detail": "only 1 prior months; bands not enforced"
+    },
+    {
+      "name": "ts_pickup_after_request",
+      "severity": "hard",
+      "passed": true,
+      "metric": 0.010118884997921327,
+      "threshold": 0.02,
+      "detail": "181,745 of 17,960,971 trips picked up before request"
+    },
+    {
+      "name": "ts_not_null",
+      "severity": "hard",
+      "passed": true,
+      "metric": 0.0,
+      "threshold": 0.02,
+      "detail": "0 of 17,960,971 trips missing a timestamp"
+    },
+    {
+      "name": "ts_wait_under_max",
+      "severity": "soft",
+      "passed": true,
+      "metric": 2.394079919175862e-6,
+      "threshold": 0.02,
+      "detail": "43 of 17,960,971 waits longer than 10800 s"
+    },
+    {
+      "name": "ts_trip_under_max",
+      "severity": "soft",
+      "passed": true,
+      "metric": 3.3405766314081795e-6,
+      "threshold": 0.02,
+      "detail": "60 of 17,960,971 trips longer than 6 h"
+    },
+    {
+      "name": "ts_request_dropoff_within_window",
+      "severity": "soft",
+      "passed": true,
+      "metric": 0.0,
+      "threshold": 0.02,
+      "detail": "0 of 17,960,971 requests/dropoffs outside month +/- 1 day"
+    },
+    {
+      "name": "ts_pickup_within_month",
+      "severity": "hard",
+      "passed": true,
+      "metric": 0.0,
+      "threshold": 0.02,
+      "detail": "0 of 17,960,971 pickups outside 2023-02 (+1 day)"
+    },
+    {
+      "name": "ts_dropoff_after_pickup",
+      "severity": "hard",
+      "passed": true,
+      "metric": 0.0,
+      "threshold": 0.02,
+      "detail": "0 of 17,960,971 trips dropped off before pickup"
+    },
+    {
+      "name": "money_fare_p999_in_band",
+      "severity": "soft",
+      "passed": true,
+      "metric": 173.2603000000119,
+      "threshold": 600.0,
+      "detail": "base fare p99.9 = 173.26; band [100.0, 600.0]"
+    },
+    {
+      "name": "money_fare_nonnegative",
+      "severity": "hard",
+      "passed": true,
+      "metric": 0.0007542465270947768,
+      "threshold": 0.02,
+      "detail": "13,547 of 17,960,971 trips with negative base fare"
+    },
+    {
+      "name": "money_flagged_share",
+      "severity": "hard",
+      "passed": true,
+      "metric": 0.0007693904744904939,
+      "threshold": 0.02,
+      "detail": "13,819 of 17,960,971 trips flagged on a money field"
+    },
+    {
+      "name": "money_pay_p999_in_band",
+      "severity": "soft",
+      "passed": true,
+      "metric": 128.81,
+      "threshold": 500.0,
+      "detail": "driver pay p99.9 = 128.81; band [80.0, 500.0]"
+    },
+    {
+      "name": "money_tips_tolls_nonnegative",
+      "severity": "soft",
+      "passed": true,
+      "metric": 0.0,
+      "threshold": 0.02,
+      "detail": "0 of 17,960,971 trips with negative tips or tolls"
+    },
+    {
+      "name": "money_pay_nonnegative",
+      "severity": "hard",
+      "passed": true,
+      "metric": 0.0000278938148722583,
+      "threshold": 0.02,
+      "detail": "501 of 17,960,971 trips with negative driver pay"
+    },
+    {
+      "name": "zones_dropoff_in_lookup",
+      "severity": "hard",
+      "passed": true,
+      "metric": 0.0,
+      "threshold": 0.001,
+      "detail": "0 of 17,960,971 dropoffs with zone not in lookup"
+    },
+    {
+      "name": "zones_pickup_in_lookup",
+      "severity": "hard",
+      "passed": true,
+      "metric": 0.0,
+      "threshold": 0.001,
+      "detail": "0 of 17,960,971 pickups with zone not in lookup"
+    },
+    {
+      "name": "zones_pickup_unknown_code_share",
+      "severity": "soft",
+      "passed": true,
+      "metric": 0.00004955188669922133,
+      "threshold": 0.01,
+      "detail": "890 of 17,960,971 pickups coded 264/265 (Unknown/N/A)"
+    },
+    {
+      "name": "bases_known_codes",
+      "severity": "hard",
+      "passed": true,
+      "metric": 0.0,
+      "threshold": 0.001,
+      "detail": "0 of 17,960,971 trips from unknown licence codes: none"
+    }
+  ]
+}
