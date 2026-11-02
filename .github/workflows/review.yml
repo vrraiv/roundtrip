@@ -92,10 +92,27 @@ jobs:
           git add reviews/
           git commit -m "review ${{ steps.form.outputs.month }}: ${{ steps.record.outputs.decision }} by @$REVIEWER (issue #$ISSUE)" || echo "record unchanged"
           git push
+          # From here on the record is saved; a later failure must not say otherwise.
+          git rev-parse --short HEAD > /tmp/recorded
 
       - name: Approve. Merge the candidate PR
         if: startsWith(steps.record.outputs.decision, 'approve') && steps.form.outputs.pr != ''
-        run: gh pr merge "${{ steps.form.outputs.pr }}" --merge --delete-branch
+        run: |
+          PR="${{ steps.form.outputs.pr }}"
+          # GitHub recomputes mergeability after the record push; until it has, the PR reads
+          # UNKNOWN and a merge is refused as "not mergeable". Wait up to a minute.
+          for i in $(seq 1 12); do
+            STATE=$(gh pr view "$PR" --json mergeable -q .mergeable)
+            [ "$STATE" != "UNKNOWN" ] && break
+            sleep 5
+          done
+          echo "PR #$PR mergeable: $STATE"
+          if [ "$STATE" != "MERGEABLE" ]; then
+            { echo "The review was recorded (commit $(cat /tmp/recorded)), but PR #$PR could not be merged: GitHub reports it as \`$STATE\`."
+              echo "Merge it by hand, then start publish.yml for ${{ steps.form.outputs.month }}, or edit this issue to resubmit."; } > /tmp/comment.md
+            exit 1
+          fi
+          gh pr merge "$PR" --merge --delete-branch
 
       - name: Approve. Start the publish workflow
         if: startsWith(steps.record.outputs.decision, 'approve')
@@ -132,7 +149,13 @@ jobs:
       - name: Report a failure on the issue
         if: failure()
         run: |
-          [ -s /tmp/comment.md ] || echo "The review workflow failed before recording anything." > /tmp/comment.md
+          if [ ! -s /tmp/comment.md ]; then
+            if [ -s /tmp/recorded ]; then
+              echo "The review was recorded (commit $(cat /tmp/recorded)), but a later step failed. See the run for which one." > /tmp/comment.md
+            else
+              echo "The review workflow failed before recording anything." > /tmp/comment.md
+            fi
+          fi
           echo >> /tmp/comment.md
           echo "Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}. Edit the issue to resubmit." >> /tmp/comment.md
           gh issue comment "$ISSUE" --body-file /tmp/comment.md
