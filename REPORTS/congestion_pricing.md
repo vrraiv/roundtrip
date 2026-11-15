@@ -1,6 +1,6 @@
 # Congestion pricing and ride-hail in the Manhattan CBD
 
-_Candidate report, run `20261102T191958Z` (2026-11-02T19:20:56+00:00), git `f963ce98`,
+_Candidate report, run `20261113T021559Z` (2026-11-13T02:16:53+00:00), git `459fd841`,
 data 2023-01-01 to 2026-09-30 (45 months)._
 
 **Headline.** Relative to the synthetic control, CBD pickups from 2025-01-05 to 2026-01-03 show: trips -4.2% [-13.3, +4.9]; mean wait (s) -1.5% [-4.2, +1.2]; mean base fare ($) +2.0% [-0.5, +4.5] (percent of counterfactual, 95% placebo intervals).
@@ -361,13 +361,13 @@ higher share means the clustered standard errors understate the noise for that o
 
 ### What changed since the last approved release
 
-Last approved run `20261028T032834Z` covered data to 2026-08-31; this run covers data to 2026-09-30.
+Last approved run `20261102T191958Z` covered data to 2026-09-30; this run covers data to 2026-09-30.
 
 | Outcome | Design | Last approved | This run | Change (pp) |
 |---|---|---|---|---|
 | trips | prior year | -4.6% [-5.2, -3.9] | -4.6% [-5.2, -3.9] | +0.0 |
 | trips | pre-window | -4.8% [-6.7, -2.8] | -4.8% [-6.7, -2.8] | +0.0 |
-| trips | synthetic control | -5.6% [-15.9, +4.6] | -4.2% [-13.3, +4.9] | +1.5 |
+| trips | synthetic control | -4.2% [-13.3, +4.9] | -4.2% [-13.3, +4.9] | +0.0 |
 | mean wait (s) | prior year | -5.0% [-6.0, -4.1] | -5.0% [-6.0, -4.1] | +0.0 |
 | mean wait (s) | pre-window | -5.4% [-7.2, -3.6] | -5.4% [-7.2, -3.6] | +0.0 |
 | mean wait (s) | synthetic control | -1.5% [-4.2, +1.2] | -1.5% [-4.2, +1.2] | +0.0 |
@@ -381,14 +381,12 @@ Last approved run `20261028T032834Z` covered data to 2026-08-31; this run covers
 | shared-request share | prior year | -15.4% [-20.3, -10.3] | -15.4% [-20.3, -10.3] | +0.0 |
 | shared-request share | pre-window | -15.4% [-18.5, -11.9] | -15.4% [-18.5, -11.9] | +0.0 |
 
-New months since the last approved release: 2026-09.
-
 ### Run record
 
 | Field | Value |
 |---|---|
-| Run id | `20261102T191958Z` |
-| Git SHA | `f963ce98a7aee69199397ed2ebd921eb59e3a8b7` |
+| Run id | `20261113T021559Z` |
+| Git SHA | `459fd84105ad4640b4169fca012a9692ebc9e0e7` |
 | Manifest hash | `cd93b075aadd513e866bd2f9025a405a6af12f8b0e2bafbabbba015ff3950c22` |
 | Package version | 0.1.0 |
-| Analysis wall time | 58.7 s |
+| Analysis wall time | 54.6 s |
